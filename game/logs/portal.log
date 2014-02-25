@@ -1,0 +1,12 @@
+2014-02-24 19:30:32+0000 [-] Log opened.
+2014-02-24 19:30:32+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-02-24 19:30:32+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-02-24 19:30:32+0000 [-] ServerFactory starting on 4000
+2014-02-24 19:30:32+0000 [-] Starting factory <twisted.internet.protocol.ServerFactory instance at 0x35fb560>
+2014-02-24 19:30:32+0000 [-] Site starting on 8000
+2014-02-24 19:30:32+0000 [-] Starting factory <twisted.web.server.Site instance at 0x35924d0>
+2014-02-24 19:30:32+0000 [-] Starting factory <src.server.amp.AmpClientFactory instance at 0x35bf488>
+2014-02-24 19:30:32+0000 [Uninitialized] <twisted.internet.tcp.Connector instance at 0x359f4d0> will retry in 1 seconds
+2014-02-24 19:30:32+0000 [Uninitialized] Stopping factory <src.server.amp.AmpClientFactory instance at 0x35bf488>
+2014-02-24 19:30:34+0000 [-] Starting factory <src.server.amp.AmpClientFactory instance at 0x35bf488>
+2014-02-24 19:30:34+0000 [Uninitialized] AMPProtocol connection established (HOST:IPv4Address(TCP, '127.0.0.1', 58055) PEER:IPv4Address(TCP, '127.0.0.1', 5000))
