@@ -128,6 +128,7 @@ class Npc(Object):
     def attack_roll(self):
         adice = (1, 20)
         roll = random.randrange(adice[0], adice[1])
+        print "in attack roll"
         return roll
 
     def get_initiative(self):
@@ -143,28 +144,26 @@ class Npc(Object):
         e = self.db.equipment
         t = self.db.target
         w = e['weapon']
+        print "in npc attack phase"
         attack_roll = self.attack_roll()
+        print t.db.combat_attributes
         if attack_roll >= t.db.combat_attributes['defense_rating']:
+            "after attack roll"
             damage = self.get_damage()
+            "got the damage"
             unarmed_hit_texts = [ '%s punches you relentlessly for %s damage!' % (self.name, damage),           
                                    '%s pummels the daylights out of you for %s damage.' % (self.name, damage),           
                                    'You attempt to grab %s, but they dodge and uppercut youfor %s damage.' % (self.name, damage),
                                    '%s punches you hard in the mouth for %s damage.' % (self.name, damage),
                                    'As %s lands a hard blow against you, you feel bones breaking under your skin.  You take %s damage.' % (self.name, damage) 
             ]
-            if w:
-                gun_hit_texts = [ 'As %s rapidly pulls the trigger of their %s, it hits you dead on dealing %s damage' % ( self.name, w.name, damage),
-                                'With a squeeze of the trigger and the report of the %s, %s does %s damage to you.' % (w.name, damage, self.name),
-                                '%s lets off a volley of shots hitting you dealing %s damage.' % (self.name, damage),
-                                '%s unleashes a hail of lead upon you dealing %s damage.' % (self.name, damage) 
-                ]
             melee_hit_texts = []
             if w is None:
                 ht = random.choice(unarmed_hit_texts)
-            elif w is not None and w['type'] is 'gun':
-                ht = random.choice(gun_hit_texts)
             t.msg(ht)
             t.take_damage(damage)
+        else:
+            print "miss"
     
     def do_skill_phase(self):
         pass

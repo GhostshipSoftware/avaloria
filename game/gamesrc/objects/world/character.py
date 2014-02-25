@@ -26,7 +26,7 @@ class Hero(Character):
                                 'exp': 0,
                                 'total_exp': 0,
                                 }
-        self.db.combat_attribute = {'attack_rating': 0, 'armor_rating': 0, 'defense_rating': 0 }
+        self.db.combat_attributes = {'attack_rating': 0, 'armor_rating': 0, 'defense_rating': 0 }
         self.db.currency = { 'gold': 0, 'silver': 0, 'copper': 0 }
         self.db.skills = { 'listen': { 'rating': 0, 'desc': 'Your ability to listen to your surroundings.'},
                             'search': { 'rating': 0, 'desc': 'Your ability to search your surroundings visually'},
@@ -40,10 +40,11 @@ class Hero(Character):
                             }
         self.db.equipment = { 'armor': None, 'main_hand_weapon': None, 'offhand_weapon': None, 'shield': None, 'right_hand_ring': None, 'left_hand_ring': None}
         self.tags.add('character_runner')
+
     def at_disconnect(self):
         self.prelogout_location = self.location
 
-    def at_post_login(self):
+    def at_post_puppet(self):
         self.cmdset.add(CharacterCmdSet)
         self.location = self.db.prelogout_location
     
@@ -166,6 +167,7 @@ class Hero(Character):
         e = self.db.equipment
         w = e['main_hand_weapon']
         attack_roll = self.attack_roll()
+        print "attack roll"
         if attack_roll >= t.db.combat_attributes['defense_rating']:
             damage = self.get_damage()
             unarmed_hit_texts = [ 'You punch %s unrelenlessly for %s damage' % (t.name, damage),
@@ -174,13 +176,10 @@ class Hero(Character):
                                    'You punch %s hard in the mouth for %s damage' % (t.name, damage),
                                    'As you land a hard blow against %s, you feel bones breaking under your fist.  You deal %s damage.' % (t.name, damage)
                                 ]
-            melee_hit_texts = [a]
+            print "unarmed hit texts"
             if w is None:
                 ht = random.choice(unarmed_hit_texts)
-            elif 'gun' in w.db.type:
-                ht = random.choice(gun_hit_texts)
             self.msg(ht) 
-           
             t.take_damage(damage)
         else:
             #miss

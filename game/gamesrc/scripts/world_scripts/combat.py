@@ -19,8 +19,11 @@ class CombatController(Script):
         self.obj.db.in_combat = True
         cm = create_object("game.gamesrc.objects.world.combat.CombatManager", key="%s_combat_manager" % self.obj.name)
         if self.obj.db.combat_manager is not None:
-            old_cm = self.obj.db.combat_manager
-            old_cm.delete()
+            try:
+                old_cm = self.obj.db.combat_manager
+                old_cm.delete()
+            except AttributeError:
+                pass
 
         self.obj.db.combat_manager = cm
         cm.db.pc_combatant = self.db.pc
@@ -35,6 +38,7 @@ class CombatController(Script):
         cm = self.obj.db.combat_manager
         if cm is not None:
             cm.delete()
+        cm = None
 
     def is_valid(self):
         return self.obj.db.in_combat
