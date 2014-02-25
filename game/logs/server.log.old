@@ -1,0 +1,25 @@
+2014-02-25 19:34:17+0000 [-] Log opened.
+2014-02-25 19:34:17+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-02-25 19:34:17+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-02-25 19:34:17+0000 [-] AmpServerFactory starting on 5000
+2014-02-25 19:34:17+0000 [-] Starting factory <src.server.amp.AmpServerFactory instance at 0x3a91200>
+2014-02-25 19:34:17+0000 [-] Site starting on 5001
+2014-02-25 19:34:17+0000 [-] Starting factory <twisted.web.server.Site instance at 0x2b0e998>
+2014-02-25 19:34:17+0000 [-] (TCP Port 5001 Closed)
+2014-02-25 19:34:17+0000 [-] Stopping factory <twisted.web.server.Site instance at 0x2b0e998>
+2014-02-25 19:34:17+0000 [-] (TCP Port 5000 Closed)
+2014-02-25 19:34:17+0000 [-] Stopping factory <src.server.amp.AmpServerFactory instance at 0x3a91200>
+2014-02-25 19:34:17+0000 [-] Main loop terminated.
+2014-02-25 19:34:17+0000 [-] Server Shut Down.
+2014-02-25 19:34:17+0000 [-] Log opened.
+2014-02-25 19:34:17+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-02-25 19:34:17+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-02-25 19:34:17+0000 [-] AmpServerFactory starting on 5000
+2014-02-25 19:34:17+0000 [-] Starting factory <src.server.amp.AmpServerFactory instance at 0x2cafc20>
+2014-02-25 19:34:17+0000 [-] Site starting on 5001
+2014-02-25 19:34:17+0000 [-] Starting factory <twisted.web.server.Site instance at 0x2d47950>
+2014-02-25 19:34:18+0000 [src.server.amp.AmpServerFactory] AMPProtocol connection established (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 53569))
+2014-02-25 19:34:27+0000 [AMPProtocol,0,127.0.0.1] [..] Logged in: admin ('127.0.0.1', 52093) (1 session total)
+2014-02-25 19:34:34+0000 [AMPProtocol,0,127.0.0.1] []
+2014-02-25 19:34:34+0000 [AMPProtocol,0,127.0.0.1] []
+2014-02-25 19:37:55+0000 [AMPProtocol,0,127.0.0.1] [..] Logged out: admin ('127.0.0.1', 52093) (no more sessions)

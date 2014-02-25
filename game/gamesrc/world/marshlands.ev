@@ -1,0 +1,64 @@
+#
+#Avaloria BATCH FILE
+#Zone: Marshlands
+#This file builds out the marshlands zone.
+#
+#
+@dig Eroded Pathway;marshlands_room;marsh1: world.room.WorldRoom
+#
+@teleport Eroded Pathway
+#
+@desc
+The air is heavy with moisture and breathing it in almost seems impossibles.
+
+As you look around, you notice that this area is incredibly quiet for being
+
+a marshland.  There is a narrow pathway winding and curving off to the North,
+
+every now at then tall bushels of whipgrass cover the way ahead.  Dragonflies
+
+and other assorted insects are abundant.   Their buzzing the only interruption
+
+to the silence presiding over the marsh.
+#
+@set here/decor_objects = { 'Whipgrass Covered Sign': 'Crossroads ->' }
+#
+@dig Marshland Clearing;marshlands_room;marsh2: world.room.WorldRoom
+#
+@open north;n, south;s = Marshland Clearing
+#
+@desc north =
+The eroded pathway continues for what seems to be a considerable way towards
+
+the north.
+#
+north
+#
+@desc
+The brush filled pathway you have been following has opened up into a rather
+
+sizeable clearing, marshwater ponds and puddles dotting the western side, lush
+
+Whipgrass fields on the eastern side.  You can see large reeds poking up out of
+
+some of the larger marshwater holes.  Way on the other side of the clearing you 
+
+just faintly make out the beginning of the pathway.  It is going to be a long,
+
+wet walk.
+#
+@dig Field of Whipgrass;marshlands_room;marsh3: world.room.WorldRoom
+#
+@open north;n, south;s = Field of Whipgrass
+#
+@desc north =
+Further to the north you can tell the whipgrass thins out and moves back into
+
+marshland.
+#
+north
+#
+@desc
+Placeholder
+#
+@teleport Limbo
