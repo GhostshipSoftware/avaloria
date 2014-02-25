@@ -39,6 +39,7 @@ class Hero(Character):
                                 'leader': { 'level': 1, 'exp_to_level': 100, 'exp': 0, 'total_exp': 0}
                             }
         self.db.equipment = { 'armor': None, 'main_hand_weapon': None, 'offhand_weapon': None, 'shield': None, 'right_hand_ring': None, 'left_hand_ring': None}
+        self.tags.add('character_runner')
     def at_disconnect(self):
         self.prelogout_location = self.location
 

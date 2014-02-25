@@ -1,4 +1,4 @@
-from ev import Script
+from ev import Script, search_object_tag
 from src.utils import search
 
 class MobRunner(Script):
@@ -16,7 +16,7 @@ class MobRunner(Script):
         self.ndb.mobs = [search.objects(dbref) for dbref in self.db.mobs]
     
     def at_repeat(self):
-        self.ndb.mobs = search.objects('mob_runner')
+        self.ndb.mobs = search_object_tag('mob_runner')
         #print "MobRunner =>  update() [%s mobs in run]" % len(self.ndb.mobs)
         [mob.tick() for mob in self.ndb.mobs if mob.db.should_update and mob is not None]
 
@@ -38,7 +38,7 @@ class CharacterRunner(Script):
         self.ndb.subscribers = [search.objects(dbref) for dbref in self.db.subscribers]
        
     def at_repeat(self):
-        self.ndb.subscribers = search.objects('character_runner')
+        self.ndb.subscribers = search_object_tag('character_runner')
         #print "CharRunner => tick() [%s chars in run]" % len(self.ndb.subscribers)
         [c.tick() for c in self.ndb.subscribers if c.has_player]
 
@@ -62,8 +62,8 @@ class ZoneRunner(Script):
         self.ndb.corpses = [search.objects(dbref) for dbref in self.db.corpses]
         
     def at_repeat(self):
-        self.ndb.subscribers = search.objects('zone_manager')
-        self.ndb.corpses = search.objects('corpse')
+        self.ndb.subscribers = search_object_tag('zone_manager')
+        self.ndb.corpses = search_object_tag('corpse')
         #print "ZoneRunner => tick() [ %s zones in run ]" % len(self.db.subscribers)
         print "mob_level()"
         [z.figure_mob_levels() for z in self.ndb.subscribers]

@@ -15,8 +15,8 @@ class ItemFactory(Object):
     """
 
     def at_object_creation(self):
-        t1_armor_comp_names = ['Metallic Bits', 'Strips of Leather', 'Chain Scrap', 'Padding Scrap']
-        t1_old_armor_husks = ['Rusted Plate Armor', 'Rusted Chain Armor', 'Rusted Scalemail Armor']
+        self.db.t1_armor_comp_names = ['Metallic Bits', 'Strips of Leather', 'Chain Scrap', 'Padding Scrap']
+        self.db.t1_old_armor_husks = ['Rusted Plate Armor', 'Rusted Chain Armor', 'Rusted Scalemail Armor']
 
 
    
@@ -27,18 +27,24 @@ class ItemFactory(Object):
             return []
         #loot_groups are important.  Each one represents a school of crafting...well roughly anyhow.
         loot_groups = ['armor']
-        lg = random.choice(loot_groups)
+        lg = 'armor'
         for x in range(0, number_of_items):
             if loot_tier == 't1':
+                print 'hit tier check'
                 if lg == 'armor':
+                    print 'loot group check'
                     rn = random.random()
+                    print rn
                     if rn < .05:
-                        name = random.choice(t1_old_armor_husks)
+                        print "in husk"
+                        name = random.choice(self.db.t1_old_armor_husks)
                         desc = "This rusted set of armor while damaged, could probably be repaired."
                     else:
-                        name = random.choice(t1_armor_comp_names)
+                        print "in comps"
+                        name = random.choice(self.db.t1_armor_comp_names)
                         desc = "Components used in the crafting of wonderful sets of armor."
-                 
+                
+                print "out of name gen" 
                 item = create_object("game.gamesrc.objects.world.item.Item", key=name, location=self)
                 item.desc = desc
                 a = item.db.attributes
@@ -86,6 +92,7 @@ class MobFactory(Object):
         itemf = self.db.item_factory
         rn = random.randrange(0,4)
         ls = itemf.create_lootset(rn, loot_tier='t1')
+        print ls
         for i in ls:
             i.move_to(m, quiet=True)
         print "done with mob_loot"

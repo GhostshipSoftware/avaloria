@@ -1,5 +1,5 @@
 import random
-from ev import Room, Object, create_object
+from ev import Room, Object, create_object, search_object_tag
 from src.utils import search
 
 class Zone(Object):
@@ -14,12 +14,12 @@ class Zone(Object):
         self.db.quest_items = []
         self.db.zone_map = {}
         self.db.mob_factory = create_object("game.gamesrc.objects.world.factories.MobFactory", key='%s MobFactory' % self.key)
-        self.aliases = [ 'zone_manager']
+        self.tags.add('zone_manager')
 
     def figure_mob_levels(self):
         mf = self.db.mob_factory
-        self.db.rooms = search.objects('%s_room' % self.key)
-        self.db.mobs = search.objects("%s_mobs" % mf.id)
+        self.db.rooms = search_object_tag('%s_room' % self.key)
+        self.db.mobs = search_object_tag("%s_mobs" % mf.id)
         for room in self.db.rooms:
             mob_set = []
             print "checking %s" % room.name
