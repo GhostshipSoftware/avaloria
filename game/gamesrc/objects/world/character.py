@@ -163,7 +163,7 @@ class Hero(Character):
         """
         t = self.db.target
         e = self.db.equipment
-        w = e['weapon']
+        w = e['main_hand_weapon']
         attack_roll = self.attack_roll()
         if attack_roll >= t.db.combat_attributes['defense_rating']:
             damage = self.get_damage()
@@ -191,7 +191,7 @@ class Hero(Character):
         
     def get_damage(self):
         e = self.db.equipment
-        w = e['weapon']
+        w = e['main_hand_weapon']
         if w is None:
             damagedice = (1, 4)
             damage = random.randrange(damagedice[0], damagedice[1])

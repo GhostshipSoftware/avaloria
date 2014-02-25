@@ -44,6 +44,7 @@ class CombatManager(Object):
             if npc.db.attributes['exp_reward'] > 0:
                 pc.award_exp(npc.db.attributes['exp_reward'])
                 pc.award_exp(npc.db.attributes['exp_reward'], archtype='soldier')
-            if npc.db.attributes['currency_reward'] > 0:
-                pc.award_currency(npc.db.attributes['currency_reward'])
+            if len(npc.db.attributes['currency_reward'].keys()) > 0:
+                for ct in npc.db.attributes['currency_reward']:
+                    pc.award_currency(npc.db.attributes['currency_reward'][ct], type=ct)
             npc.death()

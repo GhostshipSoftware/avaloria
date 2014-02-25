@@ -4,104 +4,49 @@ import random
 class ItemFactory(Object):
     """
     Main Item generator.  generates items based on list seeds.
+
+    This factory pumps out all the loot found on creatures and bosses
+    alike in the game world.  Currently in avaloria everything is player made,
+    so this is what creates all the components necessary for that.
+
+    TODO:
+        Cleanup the mob lootset generation, right now it's locked to t1 
+        which is convienent until there is t2 and t3.
     """
 
     def at_object_creation(self):
-        self.db.gun_weapon_types = [ 'pistol', 'rifle', 'shotgun', 'smg' ]
-        self.db.melee_weapon_types = [ 'bladed', 'non-bladed']
-        self.db.gun_pistol_names = [ 'Glock 9mm', 'CZ 75', 'P22', 'Springfield 1911', 'P95', 'SR22', 'LC9' ]
-        self.db.gun_rifle_names = [ 'AR-15', 'AK-47', 'SKS', '10/22', 'M4', 'M1A', 'M1 Garand', 'M1 Carbine']
-        self.db.gun_shotgun_names = [ 'SPAS-12', 'UTS-15', 'KSG', 'Mossberg 500', 'Remington 870' ]
-        self.db.gun_smg_names =  [ 'AK74U', 'Uzi', 'Mac 11', 'MP5K', 'MP5', 'Sepctre M4' ]
-        self.db.loot_ratings = ['below average', 'fair', 'good', 'excellent']
-        self.db.scavenging_items = {'Can of Beans': .01, 'Bag of Rice': .10, 'Metal Scraps': .35, 'Wood Scraps':.35, 'Wood planks':.15, 'Sheet metal': .10, 'Old tire rubber':.40, 
-                                    'Old can of Spinach':.12, 'Bottle of Water':.07, 'Old can of Soda': .1, 'Candybar': .20, 'Can of Carrots': .15, 'Can of Green beans': .01,
-                                    'Bag of Northern Beans': .30, 'Can of Oranges': .15, 'Can of Pears': .20, 'Can of Peaches': .20, 'Nails and Screws': .30, 'Nuts and Bolts': .40,
-                                    'First Aid Kit': .25, 'Pain Reliever': .40 }
+        t1_armor_comp_names = ['Metallic Bits', 'Strips of Leather', 'Chain Scrap', 'Padding Scrap']
+        t1_old_armor_husks = ['Rusted Plate Armor', 'Rusted Chain Armor', 'Rusted Scalemail Armor']
+
 
    
-    def create_lootset(self, number_of_items, loot_rating='below average'):
+    def create_lootset(self, number_of_items, loot_tier='t1'):
         loot_set = []
         print "begin loot set logic"
         if number_of_items == 0:
             return []
+        #loot_groups are important.  Each one represents a school of crafting...well roughly anyhow.
+        loot_groups = ['armor']
+        lg = random.choice(loot_groups)
         for x in range(0, number_of_items):
-            mix = ['gun', 'scavenging']
-            c = random.choice(mix)
-            if 'gun' in c:
-                print "creating a gun."
-                type = random.choice(self.db.gun_weapon_types)
-                if 'pistol' in type:
-                    name = random.choice(self.db.gun_pistol_names)
-                    dd = (2,6)
-                elif 'rifle' in type:
-                    name = random.choice(self.db.gun_rifle_names)
-                    dd = (2,10)
-                elif 'shotgun' in type:
-                    name = random.choice(self.db.gun_rifle_names)
-                    dd = (3,10)
-                elif 'smg' in type:
-                    name = random.choice(self.db.gun_smg_names)
-                    dd = (3,6)
-        
-
-                if 'below average' in loot_rating:
-                    prefix = 'Damaged '
-                    name = prefix + name
-                    desc = 'A mistreated and abused %s that has been to hell at back judging by it\'s condition.' % self.key
-                elif 'fair' in loot_rating:
-                    prefix = 'Used'
-                    name = prefix + name
-                    desc = 'A very used but generally taken care of %s.  While there is some damage it would be easily repairable.' % self.key
-                elif 'good' in loot_rating:
-                    prefix = 'New'
-                    name = prefix + name
-                    desc = 'This %s is in quite good shape, whoever it\'s previous owner was took very good care of it.' % self.key
-                elif 'excellent' in loot_rating:
-                    prefix = random.choice(['Amazing', 'Excellent', 'Spectacular'])
-                    name = prefix + name
-                    desc = 'It\'s as if this %s has never been fired, let alone seen any sort of heavy use.  It is in exquisite condition.' % self.key
-            
+            if loot_tier == 't1':
+                if lg == 'armor':
+                    rn = random.random()
+                    if rn < .05:
+                        name = random.choice(t1_old_armor_husks)
+                        desc = "This rusted set of armor while damaged, could probably be repaired."
+                    else:
+                        name = random.choice(t1_armor_comp_names)
+                        desc = "Components used in the crafting of wonderful sets of armor."
+                 
                 item = create_object("game.gamesrc.objects.world.item.Item", key=name, location=self)
                 item.desc = desc
                 a = item.db.attributes
-                a['damage_dice'] = dd
-                a['weapon_type'] = type
-                a['item_slot'] = 'weapon'
                 a['lootable'] = True
-                a['equipable'] = True
-                item.db.type = c
+                a['crafting_material'] = True
+                a['crafting_group'] = lg
+                item.db.type = 'crafting_materials'
                 item.db.attributes = a
-                print "gun creation complete"
-            elif 'scavenging' in c:
-                print "begin scavenging"
-                rn = random.random()
-                first_pass_choices = {}
-                second_pass_choices = []
-                for i in self.db.scavenging_items:
-                    if self.db.scavenging_items[i] >= rn:
-                        first_pass_choices['%s' % i] = self.db.scavenging_items[i]
-                print first_pass_choices 
-                rn = random.random()        
-                for i in first_pass_choices:
-                    if first_pass_choices[i] >= rn:
-                       second_pass_choices.append(i)
-                print second_pass_choices
-                if len(second_pass_choices) == 0:
-                    continue
-                itemname = random.choice(second_pass_choices)
-                item = create_object("game.gamesrc.objects.world.item.Item", key=itemname, location=self)
-                a = item.db.attributes
-                item.db.type = c
-                a['equipable'] = False
-                a['consumable'] = True
-                a['lootable'] = True
-                item.db.attributes = a
-                item.generate_attributes()
-                print "scavenging end"
-            #elif 'melee' in c:
-            #    pass
-            print "appending"
             loot_set.append(item)
         return loot_set
 
@@ -140,7 +85,7 @@ class MobFactory(Object):
         print "beginning create_mob_loot"
         itemf = self.db.item_factory
         rn = random.randrange(0,4)
-        ls = itemf.create_lootset(rn, loot_rating='below average')
+        ls = itemf.create_lootset(rn, loot_tier='t1')
         for i in ls:
             i.move_to(m, quiet=True)
         print "done with mob_loot"

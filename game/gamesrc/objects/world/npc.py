@@ -4,17 +4,26 @@ import random
 class Npc(Object):
     """
     Main npc class that is used for hostiles and friendlies alike.
+    
+    this controls any NON character entity that is a living being.
+
+    TODO:
+        cleanup the combat code and make it relevant.  It's crap.
+        cleanup the code that dictates currency rewards, its lazy
+        and crappy in its current incarnation.
     """
 
     def at_object_creation(self):
-        self.db.attributes = { 'strength': 10, 'endurance': 10, 'perception': 10, 'agility': 10, 'luck': 5, 'health': 0, 'stamina': 0, 'temp_health': 0, 'temp_stamina': 0, 'level': 1, 'exp_needed': 300, 'exp': 0, 'total_exp': 0, 'exp_reward': 0, 'currency_reward': 0, 'persona': None, 'visible': True, 'perception_threshold': 20}
-        self.db.combat_attributes = {'attack_bonus': 1, 'damage_threshold': 0, 'armor_class': 1, 'defense_rating': 1}
+        self.db.attributes = { 'strength': 10, 'constitution': 10, 'intelligence': 10, 'dexterity': 10, 'luck': 5, 'health': 0, 'mana': 0, 'stamina': 0, 'temp_health': 0, 'temp_stamina': 0, 'temp_mana': 0, 'level': 1, 'exp_needed': 300, 'exp': 0, 'total_exp': 0, 'exp_reward': 0, 'currency_reward': {}, 'persona': None, 'visible': True, 'perception_threshold': 20}
+        self.db.combat_attributes = {'attack_bonus': 1, 'damage_threshold': 0, 'armor_rating': 1, 'defense_rating': 1}
         self.db.equipment = {'weapon': None, 'protection': None}
         attributes = self.db.attributes
-        attributes['health'] = attributes['endurance'] * 4
+        attributes['health'] = attributes['constitution'] * 4
         attributes['temp_health'] = attributes['health']
-        attributes['stamina'] = attributes['endurance'] * 2
+        attributes['stamina'] = attributes['constitution'] * 2
         attributes['temp_stamina'] = attributes['stamina']
+        attributes['mana'] = attributes['intelligence'] * 4
+        attributes['temp_mana'] = attributes['mana']
         self.db.attributes = attributes
         self.db.in_combat = False
         self.db.corpse = False
@@ -35,7 +44,8 @@ class Npc(Object):
             perception = random.randrange(10, 18)
             agility = random.randrange(10, 18)
             luck = random.randrange(5, 15)
-            currency_reward = random.randrange(1, 10)
+            currency_reward = random.randrange(30, 68)
+            currency_type = 'copper'
             exp_reward = random.randrange(25, 35)
         elif self.db.difficulty_rating in 'hard':
             strength = random.randrange(15, 35)
@@ -44,6 +54,7 @@ class Npc(Object):
             agility = random.randrange(15, 35)
             luck = random.randrange(10, 20)
             currency_reward = random.randrange(8, 20)
+            currency_type = 'silver'
             exp_reward = random.randrange(35, 50)
         elif self.db.difficulty_rating in 'very_hard':
             strength = random.randrange(20, 40)
@@ -52,21 +63,25 @@ class Npc(Object):
             agility = random.randrange(20, 40)
             luck = random.randrange(15, 30)
             currency_reward = random.randrange(20, 30)
+            currency_type = 'gold'
             exp_reward = random.randrange(50, 75)
+            
         ca = self.db.combat_attributes
         a['strength'] = strength
-        a['endurance'] = endurance
-        a['perception'] = perception
-        a['agility'] = agility
+        a['constitution'] = endurance
+        a['intelligence'] = perception
+        a['dexterity'] = agility
         a['luck'] = luck
         a['exp_reward'] = exp_reward
-        a['currency_reward'] = currency_reward
-        ca['attack_bonus'] = (a['strength'] + a['agility']) / 10
-        ca['damage_threshold'] = (a['strength'] + a['endurance']) / 10
-        ca['armor_class'] = (a['agility'] + a['perception']) / 10
-        ca['defense_rating'] = ca['damage_threshold'] + ca['armor_class']
-        a['health'] = a['endurance'] * 4
-        a['stamina'] = a['endurance'] * 2
+        a['currency_reward'][currency_type] = currency_reward
+        ca['attack_bonus'] = (a['strength'] + a['dexterity']) / 10
+        ca['damage_threshold'] = (a['strength'] + a['constitution']) / 10
+        ca['armor_rating'] = (a['dexterity'] + a['intelligence']) / 10
+        ca['defense_rating'] = ca['damage_threshold'] + ca['armor_rating']
+        a['health'] = a['constitution'] * 4
+        a['stamina'] = a['constitution'] * 2
+        a['mana'] = a['intelligence'] * 4
+        a['temp_mana'] = a['mana']
         a['temp_health'] = a['health']
         a['temp_stamina'] = a['stamina']
         self.db.attributes = a

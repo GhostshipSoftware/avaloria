@@ -14,9 +14,10 @@ class Item(Object):
                                 'quest_item': False, 'item_slot': None, 'is_equipped': False, 
                                 'display_name': None, 'lootable': False , 'damage_dice': None,
                                 'critical_range': None, 'weapon_type': None, 'useable': None,
+                                'crafting_material': False, 'crafting_group': None
                                  }
-        self.db.attribute_bonuses = {'strength': 0, 'agility': 0, 'perception': 0, 
-                                        'endurance': 0,  'attack_bonus': 0, 'armor_class': 0, 
+        self.db.attribute_bonuses = {'strength': 0, 'dexterity': 0, 'intelligence': 0, 
+                                        'constitution': 0,  'attack_bonus': 0, 'armor_rating': 0, 
                                         'damage_threshold': 0, 'defense_rating': 0, 'luck': 0}
 
     def generate_attributes(self):
