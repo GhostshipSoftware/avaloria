@@ -1,11 +1,22 @@
 from ev import Object, Character, utils, create_object, create_channel
 from game.gamesrc.commands.world.character_commands import CharacterCmdSet
 import random
+from prettytable import PrettyTable
+
 
 
 class Hero(Character):
     """
     Main player character class
+
+    This class will be a very large part of just about everything related to the game.
+
+    TODO:
+        Allow for auxillary stats to be updated when core attributes change (i.e. buffs and debuffs).
+        Effects manager -  Write a management function to add and remove effects from the character
+        model.
+        Crafting manager - Need something to facilitate crafting.  Most of this will likely end up
+        here.
     """
 
     def at_object_creation(self):
@@ -40,6 +51,28 @@ class Hero(Character):
                             }
         self.db.equipment = { 'armor': None, 'main_hand_weapon': None, 'offhand_weapon': None, 'shield': None, 'right_hand_ring': None, 'left_hand_ring': None}
         self.tags.add('character_runner')
+        self.at_post_creation()
+
+
+    def at_post_creation(self):
+        """
+        Hook used to set auxillary stats that are based off of
+        core attributes.  Called at the end of at_object_creation
+        """
+        a = self.db.attributes
+        c = self.db.combat_attributes
+        a['health'] = a['constitution'] * 4
+        a['temp_health'] = a['health']
+        a['mana'] = a['intelligence'] * 4
+        a['temp_mana'] = a['mana']
+        a['stamina'] = a['constitution'] * 2
+        a['temp_stamina'] = a['stamina']
+        c['attack_rating'] = a['dexterity'] / 10
+        c['defense_rating'] = (a['dexterity'] / 10) + 10
+        c['damage_threshold'] = a['constitution'] / 10
+        self.db.attributes = a
+        self.db.combat_attributes = c
+
 
     def at_disconnect(self):
         self.prelogout_location = self.location
@@ -47,7 +80,22 @@ class Hero(Character):
     def at_post_puppet(self):
         self.cmdset.add(CharacterCmdSet)
         self.location = self.db.prelogout_location
-    
+   
+
+    def display_character_sheet(self):
+        a_table = PrettyTable()
+        ca_table = PrettyTable()
+        a_table._set_field_names(["Attributes", "Value"])
+        ca_table._set_field_names(["Attributes", "Value"])
+        for k in self.db.attributes:
+            a_table.add_row(["%s:" % k, self.db.attributes[k]])
+        for k in self.db.combat_attributes:
+            ca_table.add_row(["%s:" % k , self.db.combat_attributes[k]])
+        a_string = a_table.get_string()
+        self.msg(a_string)
+        ca_string = ca_table.get_string()
+        self.msg(ca_string) 
+         
     def award_currency(self, amount, type='copper'):
         """
         award the passed amount of currency to the characters money levels.

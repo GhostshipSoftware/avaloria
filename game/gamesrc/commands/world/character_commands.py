@@ -26,6 +26,24 @@ class CmdAttack(Command):
 
 
 
+class CmdDisplaySheet(Command):
+    """
+    Display your character sheet.
+
+    Usage:
+        stats
+    """
+    key = 'stats'
+    aliases = ['points', 'sheet']
+    help_category = "General"
+    locks = "cmd:all()"
+    
+
+    def func(self):
+        caller = self.caller
+        caller.display_character_sheet()
+
+
 class CmdLoot(Command):
     """
     Pass a corpse name to this command to loot the corpse.
@@ -86,5 +104,6 @@ class CharacterCmdSet(CmdSet):
     def at_cmdset_creation(self):
         self.add(CmdAttack())
         self.add(CmdLoot())
+        self.add(CmdDisplaySheet())
         self.add(CmdEquip())
 

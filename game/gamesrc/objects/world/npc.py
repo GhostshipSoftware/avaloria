@@ -176,5 +176,5 @@ class Npc(Object):
         mobs = l.db.mobs
         mobs.remove(self)
         l.db.mobs = mobs
-        self.tag.add('corpse')
+        self.tags.add('corpse')
         self.key = "Corpse of %s" % self.name
