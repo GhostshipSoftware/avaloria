@@ -50,6 +50,10 @@ class Hero(Character):
                                 'leader': { 'level': 1, 'exp_to_level': 100, 'exp': 0, 'total_exp': 0}
                             }
         self.db.equipment = { 'armor': None, 'main_hand_weapon': None, 'offhand_weapon': None, 'shield': None, 'right_hand_ring': None, 'left_hand_ring': None}
+
+	#Object creation
+	questlog = create_object('game.gamesrc.objects.world.quests.QuestManager', location=self, key="Questlog")
+	self.db.questlog = questlog
         self.tags.add('character_runner')
         self.at_post_creation()
 

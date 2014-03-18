@@ -61,4 +61,6 @@ north
 @desc
 Placeholder
 #
+@set here/decor_objects = { 'A large mossy rock': "In the center of the field is a large boulder poking its rough surface out above the tops of the long whipgrass surrounding it.", 'A sign': "Crossroads 2 miles to the north" }
+#
 @teleport Limbo
