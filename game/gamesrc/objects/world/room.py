@@ -65,6 +65,14 @@ class WorldRoom(Room):
         self.db.mobs = []
         self.db.zone = None
 
+    def at_desc(self, looker):
+        string = "You also see: "
+        if len(self.db.decor_objects.keys()) != 0:
+            for k in self.db.decor_objects:
+                string += k + ","
+                string = string.rstrip(',') 
+            looker.msg(string)
+
     def at_object_receive(self, moved_obj, source_location):
         if hasattr(self, 'manager'):
             manager = self.db.manager

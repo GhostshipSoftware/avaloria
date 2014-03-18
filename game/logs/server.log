@@ -1,0 +1,86 @@
+2014-03-18 18:52:33+0000 [-] Log opened.
+2014-03-18 18:52:33+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-03-18 18:52:33+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-03-18 18:52:33+0000 [-] AmpServerFactory starting on 5000
+2014-03-18 18:52:33+0000 [-] Starting factory <src.server.amp.AmpServerFactory instance at 0x3a91fc8>
+2014-03-18 18:52:33+0000 [-] Site starting on 5001
+2014-03-18 18:52:33+0000 [-] Starting factory <twisted.web.server.Site instance at 0x3b27998>
+2014-03-18 18:52:35+0000 [src.server.amp.AmpServerFactory] AMPProtocol connection established (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38849))
+2014-03-18 18:52:35+0000 [AMPProtocol,0,127.0.0.1] mob_level()
+2014-03-18 18:52:35+0000 [AMPProtocol,0,127.0.0.1] corpse delete
+2014-03-18 18:52:40+0000 [AMPProtocol,0,127.0.0.1] [..] Logged in: admin ('127.0.0.1', 46681) (1 session total)
+2014-03-18 18:52:45+0000 [AMPProtocol,0,127.0.0.1] []
+2014-03-18 18:52:48+0000 [AMPProtocol,0,127.0.0.1] [..] Logged out: admin ('127.0.0.1', 46681) (no more sessions)
+2014-03-18 18:53:35+0000 [-] mob_level()
+2014-03-18 18:53:35+0000 [-] corpse delete
+2014-03-18 18:54:35+0000 [-] mob_level()
+2014-03-18 18:54:35+0000 [-] corpse delete
+2014-03-18 18:54:51+0000 [-] Received SIGINT, shutting down.
+2014-03-18 18:54:51+0000 [-] (TCP Port 5001 Closed)
+2014-03-18 18:54:51+0000 [-] Stopping factory <twisted.web.server.Site instance at 0x3b27998>
+2014-03-18 18:54:51+0000 [-] (TCP Port 5000 Closed)
+2014-03-18 18:54:51+0000 [-] Stopping factory <src.server.amp.AmpServerFactory instance at 0x3a91fc8>
+2014-03-18 18:54:51+0000 [AMPProtocol,0,127.0.0.1] AMPProtocol connection lost (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38849))
+2014-03-18 18:54:51+0000 [AMPProtocol,0,127.0.0.1] AMP Error for PortalAdmin: Connection to the other side was lost in a non-clean fashion: Connection lost.
+2014-03-18 18:54:51+0000 [-] Main loop terminated.
+2014-03-18 18:54:51+0000 [-] Server Shut Down.
+2014-03-18 18:54:51+0000 [-] Log opened.
+2014-03-18 18:54:51+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-03-18 18:54:51+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-03-18 18:54:51+0000 [-] AmpServerFactory starting on 5000
+2014-03-18 18:54:51+0000 [-] Starting factory <src.server.amp.AmpServerFactory instance at 0x29ef560>
+2014-03-18 18:54:51+0000 [-] Site starting on 5001
+2014-03-18 18:54:51+0000 [-] Starting factory <twisted.web.server.Site instance at 0x2c24830>
+2014-03-18 18:54:52+0000 [src.server.amp.AmpServerFactory] AMPProtocol connection established (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38852))
+2014-03-18 18:54:58+0000 [AMPProtocol,0,127.0.0.1] [..] Logged in: admin ('127.0.0.1', 46684) (1 session total)
+2014-03-18 18:55:06+0000 [AMPProtocol,0,127.0.0.1] []
+2014-03-18 18:55:10+0000 [AMPProtocol,0,127.0.0.1] [..] Logged out: admin ('127.0.0.1', 46684) (no more sessions)
+2014-03-18 18:55:36+0000 [-] mob_level()
+2014-03-18 18:55:36+0000 [-] corpse delete
+2014-03-18 18:55:54+0000 [-] Received SIGINT, shutting down.
+2014-03-18 18:55:54+0000 [-] (TCP Port 5001 Closed)
+2014-03-18 18:55:54+0000 [-] Stopping factory <twisted.web.server.Site instance at 0x2c24830>
+2014-03-18 18:55:54+0000 [-] (TCP Port 5000 Closed)
+2014-03-18 18:55:54+0000 [-] Stopping factory <src.server.amp.AmpServerFactory instance at 0x29ef560>
+2014-03-18 18:55:54+0000 [AMPProtocol,0,127.0.0.1] AMPProtocol connection lost (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38852))
+2014-03-18 18:55:54+0000 [AMPProtocol,0,127.0.0.1] AMP Error for PortalAdmin: Connection to the other side was lost in a non-clean fashion: Connection lost.
+2014-03-18 18:55:54+0000 [-] Main loop terminated.
+2014-03-18 18:55:54+0000 [-] Server Shut Down.
+2014-03-18 18:55:55+0000 [-] Log opened.
+2014-03-18 18:55:55+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-03-18 18:55:55+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-03-18 18:55:55+0000 [-] AmpServerFactory starting on 5000
+2014-03-18 18:55:55+0000 [-] Starting factory <src.server.amp.AmpServerFactory instance at 0x2463560>
+2014-03-18 18:55:55+0000 [-] Site starting on 5001
+2014-03-18 18:55:55+0000 [-] Starting factory <twisted.web.server.Site instance at 0x2699830>
+2014-03-18 18:55:55+0000 [src.server.amp.AmpServerFactory] AMPProtocol connection established (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38855))
+2014-03-18 18:56:01+0000 [AMPProtocol,0,127.0.0.1] [..] Logged in: admin ('127.0.0.1', 46687) (1 session total)
+2014-03-18 18:56:08+0000 [AMPProtocol,0,127.0.0.1] []
+2014-03-18 18:56:10+0000 [AMPProtocol,0,127.0.0.1] [..] Logged out: admin ('127.0.0.1', 46687) (no more sessions)
+2014-03-18 18:56:12+0000 [-] Received SIGINT, shutting down.
+2014-03-18 18:56:12+0000 [-] (TCP Port 5001 Closed)
+2014-03-18 18:56:12+0000 [-] Stopping factory <twisted.web.server.Site instance at 0x2699830>
+2014-03-18 18:56:12+0000 [-] (TCP Port 5000 Closed)
+2014-03-18 18:56:12+0000 [-] Stopping factory <src.server.amp.AmpServerFactory instance at 0x2463560>
+2014-03-18 18:56:12+0000 [AMPProtocol,0,127.0.0.1] AMPProtocol connection lost (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38855))
+2014-03-18 18:56:12+0000 [AMPProtocol,0,127.0.0.1] AMP Error for PortalAdmin: Connection to the other side was lost in a non-clean fashion: Connection lost.
+2014-03-18 18:56:12+0000 [-] Main loop terminated.
+2014-03-18 18:56:12+0000 [-] Server Shut Down.
+2014-03-18 18:56:12+0000 [-] Log opened.
+2014-03-18 18:56:12+0000 [-] twistd 13.2.0 (/usr/bin/python 2.6.6) starting up.
+2014-03-18 18:56:12+0000 [-] reactor class: twisted.internet.epollreactor.EPollReactor.
+2014-03-18 18:56:12+0000 [-] AmpServerFactory starting on 5000
+2014-03-18 18:56:12+0000 [-] Starting factory <src.server.amp.AmpServerFactory instance at 0x236f560>
+2014-03-18 18:56:12+0000 [-] Site starting on 5001
+2014-03-18 18:56:12+0000 [-] Starting factory <twisted.web.server.Site instance at 0x25a3830>
+2014-03-18 18:56:13+0000 [src.server.amp.AmpServerFactory] AMPProtocol connection established (HOST:IPv4Address(TCP, '127.0.0.1', 5000) PEER:IPv4Address(TCP, '127.0.0.1', 38858))
+2014-03-18 18:56:38+0000 [-] mob_level()
+2014-03-18 18:56:38+0000 [-] corpse delete
+2014-03-18 18:56:45+0000 [AMPProtocol,0,127.0.0.1] [..] Logged in: admin ('127.0.0.1', 46690) (1 session total)
+2014-03-18 18:56:53+0000 [AMPProtocol,0,127.0.0.1] []
+2014-03-18 18:57:08+0000 [AMPProtocol,0,127.0.0.1] []
+2014-03-18 18:57:38+0000 [-] mob_level()
+2014-03-18 18:57:38+0000 [-] corpse delete
+2014-03-18 18:58:30+0000 [AMPProtocol,0,127.0.0.1] [..] Logged out: admin ('127.0.0.1', 46690) (no more sessions)
+2014-03-18 18:58:38+0000 [-] mob_level()
+2014-03-18 18:58:38+0000 [-] corpse delete
