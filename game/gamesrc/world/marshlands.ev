@@ -6,6 +6,8 @@
 #
 @dig Eroded Pathway;marshlands_room;marsh1: world.room.WorldRoom
 #
+@tag Eroded Pathway = marshlands_room
+#
 @teleport Eroded Pathway
 #
 @desc
@@ -24,6 +26,8 @@ to the silence presiding over the marsh.
 @set here/decor_objects = { 'Whipgrass Covered Sign': 'Crossroads ->' }
 #
 @dig Marshland Clearing;marshlands_room;marsh2: world.room.WorldRoom
+#
+@tag Marshland Clearing = marshlands_room
 #
 @open north;n, south;s = Marshland Clearing
 #
@@ -48,6 +52,8 @@ just faintly make out the beginning of the pathway.  It is going to be a long,
 wet walk.
 #
 @dig Field of Whipgrass;marshlands_room;marsh3: world.room.WorldRoom
+#
+@tag Field of Whipgrass = marshlands_room
 #
 @open north;n, south;s = Field of Whipgrass
 #
