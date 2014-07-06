@@ -26,6 +26,52 @@ class CmdAttack(Command):
 
 
 
+class CmdTalk(Command):
+    """
+    Attempt to talk to the given object, typically an npc who is able to respond
+    to you.  Will return gracefully if the particular object does not support
+    having a conversation with the character.
+    
+    Usage:
+        talk to <npc|object name> <whatever yer message is>
+
+    NOTE: Just because you can talk to an npc does not mean that they care about
+    or know about what you are discussing with them.  Typically the control words
+    will be very easy to spot.
+    """
+    key = 'talk'
+    aliases = ['talk to', 't']
+    help_category = 'general'
+    locks = "cmd:all()"
+
+    def parse(self):
+        if len(self.args) < 1:
+            print "usage: talk to <npc> <message>"
+            return
+        args = self.args.split()
+        self.npc = args[0]
+        args.remove(self.npc)
+        self.message = ' '.join(args)
+
+    def func(self):
+        if self.caller.db.in_combat:
+            self.caller.msg("{RCan't talk to people while in combat!")
+            return
+        if len(self.args) < 1:
+            self.caller.msg("usage: talk to <npc> <message>")
+            return
+        npc = self.caller.search(self.npc, global_search=False)
+        if hasattr(npc, "combatant"):
+            if npc is not None:
+                self.caller.msg("{mYou tell %s: %s{n" % (npc.name, self.message)) 
+                npc.dictate_action(self.caller, self.message)  
+            else:
+                self.caller.msg("I don not see anyone around by that name.")
+                return
+        else:
+            self.caller.msg("You can't talk to that, are you mad?")
+
+
 class CmdDisplaySheet(Command):
     """
     Display your character sheet.
@@ -106,4 +152,5 @@ class CharacterCmdSet(CmdSet):
         self.add(CmdLoot())
         self.add(CmdDisplaySheet())
         self.add(CmdEquip())
+        self.add(CmdTalk())
 

@@ -178,3 +178,84 @@ class Npc(Object):
         l.db.mobs = mobs
         self.tags.add('corpse')
         self.key = "Corpse of %s" % self.name
+        
+
+    
+    def dictate_action(self, caller, message):
+        if 'train' in message or 'Train' in message:
+            if self.db.trainer is True:
+                self.train_character(caller)
+            else:
+                self.tell_character(caller, "I do not have anything to train you in.")
+        elif 'quests' in message or 'quest' in message:
+            self.create_quest_menu(caller)
+            # just not sure yet what
+        elif 'buy' in message or 'Buy' in message:
+            self.create_merchant_menutree(caller)
+        else:
+            #try dialogue
+            if self.db.quest_giver:
+                self.create_quest_menu(caller)
+            elif self.db.merchant:
+                self.create_merchant_menutree(caller)
+            elif len(self.db.dialogue.keys()) < 1:
+                self.tell_character(caller, "I have nothing to say to the likes of you!")
+            else:
+                self.do_dialog(caller, type='greeting')
+                
+    def create_quest_menu(self, caller):
+        if len(self.db.quests) < 1:
+            self.tell_character(caller, "I have no work for you at the moment adventurer.")
+            return
+        nodes = []
+        quests = self.db.quests
+        checked_quests = []
+        character = caller
+        character_quest_log = character.db.quest_log
+        active_quests = character_quest_log.db.active_quests
+        completed_quests = character_quest_log.db.completed_quests
+        storage = self.search('storage', global_search=True)
+        for quest in quests:
+            quest_obj = storage.search('%s' % quest.title(), global_search=False, ignore_errors=True)[0]
+            if quest.lower() in [ q.lower() for q in active_quests.keys()]:
+                continue
+            if quest_obj.db.prereq is not None:
+                if ';' in quest_obj.db.prereq:
+                    split_list = quest_obj.db.prereq.split(';')
+                    for item in split_list:
+                        if item in completed_quests.keys():
+                            continue
+                else:
+                    if quest_obj.db.prereq.title() not in [key.title() for key in completed_quests.keys()]:
+                        continue 
+            if quest_obj.db.repeatable:
+                checked_quests.append(quest)
+                continue
+            if quest.lower() in [ q.lower() for q in completed_quests.keys()]:
+                continue
+                
+            checked_quests.append(quest)
+        if len(checked_quests) < 1:
+            self.tell_character(caller, "I have no more work for you adventurer.")
+            return
+                 
+        quests_string = '\n'.join(["{y!{n {g%s" % i for i in quests])
+        welcome_text = """
+Hello %s, my name is %s.  I am looking for some help with some things today, 
+perhaps you could spare some time? 
+        """ % (caller.name, self.db.real_name)
+        root_node = MenuNode("START", links=[i for i in checked_quests], linktexts=["{y!{n %s" % i for i in checked_quests], text = welcome_text)
+        for quest in checked_quests:
+            #caller.msg("Looking for: %s" % quest)
+            quest_obj = storage.search('%s' % quest, global_search=False, ignore_errors=True)[0]
+            #caller.msg("%s" % quest_obj.name)
+            confirm_quest_node = MenuNode("confirm-%s" % quest, links=[], linktexts=[], code="self.caller.accept_quest('%s');self.goto('END');self.caller.cmdset.delete('contrib.menusystem.MenuCmdSet')" % quest)
+            quest_node = MenuNode("%s" % quest, links=['confirm-%s' % quest, 'START'], linktexts=['Accept %s' % quest, "I want to talk about something else."], text=quest_obj.db.long_description)
+            nodes.append(confirm_quest_node)
+            nodes.append(quest_node)
+        nodes.append(root_node)
+        menu = MenuTree(caller=caller, nodes=nodes)
+        menu.start()
+    
+    
+    
