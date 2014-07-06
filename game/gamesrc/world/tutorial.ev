@@ -23,7 +23,7 @@ HINT: Use the talk command, type: help talk  to find out more.
 #
 @set here/cell_number = A0
 #
-@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.roomsWorldRoom
+@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.rooms.WorldRoom
 #
 @tag Damp Chamber = tutorial2
 #
