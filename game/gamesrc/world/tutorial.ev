@@ -1,6 +1,6 @@
 #Avaloria Tutorial World build file
 #
-@dig Dimly Lit Chamber;tutorial;tutorial1;tutorial_room;tutorial_quest_item_spawn : world.rooms.WorldRoom
+@dig Dimly Lit Chamber;tutorial;tutorial1;tutorial_room;tutorial_quest_item_spawn : world.room.WorldRoom
 #
 @teleport tutorial1
 #
@@ -23,7 +23,7 @@ HINT: Use the talk command, type: help talk  to find out more.
 #
 @set here/cell_number = A0
 #
-@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.rooms.WorldRoom
+@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.room.WorldRoom
 #
 @tag Damp Chamber = tutorial2
 #
@@ -43,7 +43,7 @@ yet to be seen.
 #
 @set here/cell_number = A1
 #
-@dig Well Lit Chamber;tutorial;tutorial3;tutorial_room;tutorial_enemy_npc_spawn : world.rooms.WorldRoom
+@dig Well Lit Chamber;tutorial;tutorial3;tutorial_room;tutorial_enemy_npc_spawn : world.room.WorldRoom
 #
 @open well lit chamber = tutorial3
 #
