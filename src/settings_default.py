@@ -23,8 +23,7 @@ import os
 SERVERNAME = "Evennia"
 # Activate telnet service
 TELNET_ENABLED = True
-# A list of ports the Evennia telnet server listens on
-# Can be one or many.
+# A list of ports the Evennia telnet server listens on Can be one or many.
 TELNET_PORTS = [4000]
 # Interface addresses to listen to. If 0.0.0.0, listen to all. Use :: for IPv6.
 TELNET_INTERFACES = ['0.0.0.0']
@@ -59,21 +58,42 @@ UPSTREAM_IPS = ['127.0.0.1']
 # with server load. Set the minimum and maximum number of threads it
 # may use as (min, max) (must be > 0)
 WEBSERVER_THREADPOOL_LIMITS = (1, 20)
-# Start the evennia ajax client on /webclient
-# (the webserver must also be running)
+# Start the evennia webclient. This requires the webserver to be running and
+# offers the fallback ajax-based webclient backbone for browsers not supporting
+# the websocket one.
 WEBCLIENT_ENABLED = True
-# Activate SSH protocol (SecureShell)
+# Activate Websocket support for modern browsers. If this is on, the
+# default webclient will use this and only use the ajax version of the browser
+# is too old to support websockets. Requires WEBCLIENT_ENABLED.
+WEBSOCKET_CLIENT_ENABLED = True
+# Server-side websocket port to open for the webclient.
+WEBSOCKET_CLIENT_PORT = 8001
+# Interface addresses to listen to. If 0.0.0.0, listen to all. Use :: for IPv6.
+WEBSOCKET_CLIENT_INTERFACE = '0.0.0.0'
+# Actual URL for webclient component to reach the websocket. The first
+# port number in the WEBSOCKET_PORTS list will be automatically appended.
+WEBSOCKET_CLIENT_URL = "ws://localhost"
+# Activate SSH protocol communication (SecureShell)
 SSH_ENABLED = False
 # Ports to use for SSH
 SSH_PORTS = [8022]
 # Interface addresses to listen to. If 0.0.0.0, listen to all. Use :: for IPv6.
 SSH_INTERFACES = ['0.0.0.0']
-# Actiave SSL protocol (SecureSocketLibrary)
+# Activate SSL protocol (SecureSocketLibrary)
 SSL_ENABLED = False
 # Ports to use for SSL
 SSL_PORTS = [4001]
 # Interface addresses to listen to. If 0.0.0.0, listen to all. Use :: for IPv6.
 SSL_INTERFACES = ['0.0.0.0']
+# Activate Websocket support
+WEBSOCKET_ENABLED = False
+# Ports to use for Websockets
+WEBSOCKET_PORTS = [8021]
+# Interface addresses to listen to. If 0.0.0.0, listen to all. Use :: for IPv6.
+WEBSOCKET_INTERFACES = ['0.0.0.0']
+# This determine's whether Evennia's custom admin page is used, or if the
+# standard Django admin is used.
+EVENNIA_ADMIN = True
 # The path that contains this settings.py file (no trailing slash).
 BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Path to the src directory containing the bulk of the codebase's code.
@@ -93,7 +113,8 @@ CYCLE_LOGFILES = True
 # http://www.postgresql.org/docs/8.0/interactive/datetime-keywords.html#DATETIME-TIMEZONE-SET-TABLE
 TIME_ZONE = 'UTC'
 # Authentication backends. This is the code used to authenticate a user.
-AUTHENTICATION_BACKENDS = ('src.web.backends.CaseInsensitiveModelBackend',)
+AUTHENTICATION_BACKENDS = (
+    'src.web.utils.backends.CaseInsensitiveModelBackend',)
 # Language code for this installation. All choices can be found here:
 # http://www.w3.org/TR/REC-html40/struct/dirlang.html#langcodes
 LANGUAGE_CODE = 'en-us'
@@ -120,18 +141,30 @@ ENCODINGS = ["utf-8", "latin-1", "ISO-8859-1"]
 AMP_HOST = 'localhost'
 AMP_PORT = 5000
 AMP_INTERFACE = '127.0.0.1'
-# Caching speeds up all forms of database access, often considerably. There
-# are (currently) only two settings, "local" or None, the latter of which turns
-# off all caching completely. Local caching stores data in the process. It's
-# very fast but will go out of sync if more than one process writes to the
-# database (such as when using procpool or an extensice web precense).
-GAME_CACHE_TYPE = "local"
-# Attributes on objects are cached aggressively for speed. If the number of
-# objects is large (and their attributes are often accessed) this can use up
-# a lot of memory. So every now and then Evennia checks the size of this
-# cache and resets it if it's too big. This variable sets the maximum
-# size (in MB).
-ATTRIBUTE_CACHE_MAXSIZE = 100
+# Database objects are cached in what is known as the idmapper. The idmapper
+# caching results in a massive speedup of the server (since it dramatically
+# limits the number of database accesses needed) and also allows for
+# storing temporary data on objects. It is however also the main memory
+# consumer of Evennia. With this setting the cache can be capped and
+# flushed when it reaches a certain size. Minimum is 50 MB but it is
+# not recommended to set this to less than 100 MB for a distribution
+# system.
+# Empirically, N_objects_in_cache ~ ((RMEM - 35) / 0.0157):
+#  mem(MB)   |  objs in cache   ||   mem(MB)   |   objs in cache
+#      50    |       ~1000      ||      800    |     ~49 000
+#     100    |       ~4000      ||     1200    |     ~75 000
+#     200    |      ~10 000     ||     1600    |    ~100 000
+#     500    |      ~30 000     ||     2000    |    ~125 000
+# Note that the estimated memory usage is not exact (and the cap is only
+# checked every 5 minutes), so err on the side of caution if
+# running on a server with limited memory. Also note that Python
+# will not necessarily return the memory to the OS when the idmapper
+# flashes (the memory will be freed and made available to the Python
+# process only). How many objects need to be in memory at any given
+# time depends very much on your game so some experimentation may
+# be necessary (use @server to see how many objects are in the idmapper
+# cache at any time). Setting this to None disables the cache cap.
+IDMAPPER_CACHE_MAXSIZE = 200      # (MB)
 
 ######################################################################
 # Evennia Database config
@@ -207,7 +240,7 @@ LOCK_FUNC_MODULES = ("src.locks.lockfuncs",)
 # Module holding OOB (Out of Band) hook objects. This allows for customization
 # and expansion of which hooks OOB protocols are allowed to call on the server
 # protocols for attaching tracker hooks for when various object field change
-OOB_PLUGIN_MODULES = ["src.server.oob_msdp"]
+OOB_PLUGIN_MODULES = ["src.server.oob_cmds"]
 
 ######################################################################
 # Default command sets
@@ -230,6 +263,8 @@ CMDSET_SESSION = "src.commands.default.cmdset_session.SessionCmdSet"
 CMDSET_CHARACTER = "src.commands.default.cmdset_character.CharacterCmdSet"
 # Command set for players without a character (ooc)
 CMDSET_PLAYER = "src.commands.default.cmdset_player.PlayerCmdSet"
+# Location to search for cmdsets if full path not given
+CMDSET_PATHS = ["game.gamesrc.commands"]
 
 ######################################################################
 # Typeclasses and other paths
@@ -265,11 +300,14 @@ BASE_CHANNEL_TYPECLASS = "src.comms.comms.Channel"
 # Typeclass for Scripts (fallback). You usually don't need to change this
 # but create custom variations of scripts on a per-case basis instead.
 BASE_SCRIPT_TYPECLASS = "src.scripts.scripts.DoNothing"
-# The home location for new characters. This must be a unique
-# dbref (default is Limbo #2). If you want more advanced control over
-# start locations, copy the "create" command from
-# src/commands/default/unloggedin.py and customize.
-CHARACTER_DEFAULT_HOME = "#2"
+# The default home location used for all objects. This is used as a
+# fallback if an object's normal home location is deleted. Default
+# is Limbo (#2).
+DEFAULT_HOME = "#2"
+# The start position for new characters. Default is Limbo (#2).
+#  MULTISESSION_MODE = 0, 1 - used by default unloggedin create command
+#  MULTISESSION_MODE = 2 - used by default character_create command
+START_LOCATION = "#2"
 # Lookups of Attributes, Tags, Nicks, Aliases can be aggressively
 # cached to avoid repeated database hits. This often gives noticeable
 # performance gains since they are called so often. Drawback is that
@@ -372,6 +410,15 @@ CHANNEL_CONNECTINFO = ("MUDconnections", '', 'Connection log',
 # versa. Obs - make sure the IRC network allows bots.
 # When enabled, command @irc2chan will be available in-game
 IRC_ENABLED = False
+# RSS allows to connect RSS feeds (from forum updates, blogs etc) to
+# an in-game channel. The channel will be updated when the rss feed
+# updates. Use @rss2chan in game to connect if this setting is
+# active. OBS: RSS support requires the python-feedparser package to
+# be installed (through package manager or from the website
+# http://code.google.com/p/feedparser/)
+RSS_ENABLED=False
+RSS_UPDATE_INTERVAL = 60*10 # 10 minutes
+
 # IMC (Inter-MUD communication) allows to connect an Evennia channel
 # to an IMC2 server. This lets them talk to people on other MUDs also
 # using IMC.  Evennia's IMC2 client was developed against MudByte's
@@ -384,19 +431,14 @@ IRC_ENABLED = False
 # command @imc2chan becomes available in-game and allows you to
 # connect Evennia channels to IMC channels on the network. The Evennia
 # discussion channel 'ievennia' is on server01.mudbytes.net:5000.
+
+# NOTE - IMC2 is currently NOT FUNCTIONAL due to lack of testing means.
 IMC2_ENABLED = False
 IMC2_NETWORK = "server01.mudbytes.net"
 IMC2_PORT = 5000 # this is the imc2 port, not on localhost
 IMC2_CLIENT_PWD = ""
 IMC2_SERVER_PWD = ""
-# RSS allows to connect RSS feeds (from forum updates, blogs etc) to
-# an in-game channel. The channel will be updated when the rss feed
-# updates. Use @rss2chan in game to connect if this setting is
-# active. OBS: RSS support requires the python-feedparser package to
-# be installed (through package manager or from the website
-# http://code.google.com/p/feedparser/)
-RSS_ENABLED=False
-RSS_UPDATE_INTERVAL = 60*10 # 10 minutes
+
 
 ######################################################################
 # Django web features
@@ -415,14 +457,9 @@ TEMPLATE_DEBUG = DEBUG
 ADMINS = () #'Your Name', 'your_email@domain.com'),)
 # These guys get broken link notifications when SEND_BROKEN_LINK_EMAILS is True.
 MANAGERS = ADMINS
-# Absolute path to the directory that holds media (no trailing slash).
+# Absolute path to the directory that holds file uploads from web apps.
 # Example: "/home/media/media.lawrence.com"
-MEDIA_ROOT = os.path.join(SRC_DIR, 'web', 'media')
-# Absolute path to the directory that holds (usually links to) the
-# django admin media files. If the target directory does not exist, it
-# is created and linked by Evennia upon first start. Otherwise link it
-# manually to django/contrib/admin/media.
-ADMIN_MEDIA_ROOT = os.path.join(MEDIA_ROOT, 'admin')
+MEDIA_ROOT = os.path.join(GAME_DIR, "gamesrc", "web", "media")
 # It's safe to dis-regard this, as it's a Django feature we only half use as a
 # dependency, not actually what it's primarily meant for.
 SITE_ID = 1
@@ -447,7 +484,7 @@ LOCALE_PATHS = ["../locale/"]
 # development webserver (normally Evennia runs its own server)
 SERVE_MEDIA = False
 # The master urlconf file that contains all of the sub-branches to the
-# applications.
+# applications. Change this to add your own URLs to the website.
 ROOT_URLCONF = 'src.web.urls'
 # Where users are redirected after logging in via contrib.auth.login.
 LOGIN_REDIRECT_URL = '/'
@@ -461,12 +498,23 @@ MEDIA_URL = '/media/'
 # URL prefix for admin media -- CSS, JavaScript and images. Make sure
 # to use a trailing slash. Django1.4+ will look for admin files under
 # STATIC_URL/admin.
-STATIC_URL = '/media/'
+STATIC_URL = '/static/'
+
+STATIC_ROOT = os.path.join(GAME_DIR, "gamesrc", "web", "static")
+
+# Directories from which static files will be gathered from.
+STATICFILES_DIRS = (
+    os.path.join(GAME_DIR, "gamesrc", "web", "static_overrides"),
+    os.path.join(SRC_DIR, "web", "static"),)
+# Patterns of files in the static directories. Used here to make sure that
+# its readme file is preserved but unused.
+STATICFILES_IGNORE_PATTERNS = ('README.md',)
 # The name of the currently selected web template. This corresponds to the
 # directory names shown in the webtemplates directory.
 ACTIVE_TEMPLATE = 'prosimii'
 # We setup the location of the website template as well as the admin site.
 TEMPLATE_DIRS = (
+    os.path.join(GAME_DIR, "gamesrc", "web", "template_overrides"),
     os.path.join(SRC_DIR, "web", "templates", ACTIVE_TEMPLATE),
     os.path.join(SRC_DIR, "web", "templates"),)
 # List of callables that know how to import templates from various sources.
@@ -508,6 +556,7 @@ INSTALLED_APPS = (
     'django.contrib.admin',
     'django.contrib.admindocs',
     'django.contrib.flatpages',
+    'django.contrib.staticfiles',
     'src.server',
     'src.typeclasses',
     'src.players',
@@ -515,14 +564,13 @@ INSTALLED_APPS = (
     'src.comms',
     'src.help',
     'src.scripts',
-    'src.web.news',
-    'src.web.website',)
+    'src.web.webclient')
 # The user profile extends the User object with more functionality;
 # This should usually not be changed.
 AUTH_USER_MODEL = "players.PlayerDB"
 #AUTH_PROFILE_MODULE = "players.PlayerDB"
 # Use a custom test runner that just tests Evennia-specific apps.
-TEST_RUNNER = 'src.utils.test_utils.EvenniaTestSuiteRunner'
+TEST_RUNNER = 'src.server.tests.EvenniaTestSuiteRunner'
 
 ######################################################################
 # Django extensions

@@ -4,7 +4,16 @@
 #
 
 from django.contrib import admin
-from src.comms.models import ChannelDB, Msg, PlayerChannelConnection, ExternalChannelConnection
+from src.comms.models import ChannelDB
+from src.typeclasses.admin import AttributeInline, TagInline
+
+
+class ChannelAttributeInline(AttributeInline):
+    model = ChannelDB.db_attributes.through
+
+
+class ChannelTagInline(TagInline):
+    model = ChannelDB.db_tags.through
 
 
 class MsgAdmin(admin.ModelAdmin):
@@ -20,30 +29,9 @@ class MsgAdmin(admin.ModelAdmin):
 #admin.site.register(Msg, MsgAdmin)
 
 
-class PlayerChannelConnectionInline(admin.TabularInline):
-    model = PlayerChannelConnection
-    fieldsets = (
-        (None, {
-                'fields':(('db_player', 'db_channel')),
-                'classes':('collapse',)}),)
-    extra = 1
-
-
-class ExternalChannelConnectionInline(admin.StackedInline):
-    model = ExternalChannelConnection
-    fieldsets = (
-        (None, {
-                'fields': (('db_is_enabled','db_external_key', 'db_channel'),
-                           'db_external_send_code', 'db_external_config'),
-                'classes': ('collapse',)
-                }),)
-    extra = 1
-
-
 class ChannelAdmin(admin.ModelAdmin):
-    inlines = (PlayerChannelConnectionInline, ExternalChannelConnectionInline)
-
-    list_display = ('id', 'db_key', 'db_lock_storage')
+    inlines = [ChannelTagInline, ChannelAttributeInline]
+    list_display = ('id', 'db_key', 'db_lock_storage', "subscriptions")
     list_display_links = ("id", 'db_key')
     ordering = ["db_key"]
     search_fields = ['id', 'db_key', 'db_aliases']
@@ -51,7 +39,11 @@ class ChannelAdmin(admin.ModelAdmin):
     save_on_top = True
     list_select_related = True
     fieldsets = (
-        (None, {'fields': (('db_key',), 'db_lock_storage',)}),
+        (None, {'fields': (('db_key',), 'db_lock_storage', 'db_subscriptions')}),
         )
+
+    def subscriptions(self, obj):
+        "Helper method to get subs from a channel"
+        return ", ".join([str(sub) for sub in obj.db_subscriptions.all()])
 
 admin.site.register(ChannelDB, ChannelAdmin)

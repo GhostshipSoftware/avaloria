@@ -26,12 +26,13 @@ Common examples of uses of Scripts:
 """
 from django.conf import settings
 from django.db import models
-
-from src.typeclasses.models import (TypedObject, TagHandler,
-                                    AttributeHandler)
+from django.core.exceptions import ObjectDoesNotExist
+from src.typeclasses.models import TypedObject, TagHandler, AttributeHandler
 from src.scripts.manager import ScriptManager
+from src.utils.utils import dbref, to_str, LazyLoadHandler
 
 __all__ = ("ScriptDB",)
+_GA = object.__getattribute__
 _SA = object.__setattr__
 
 
@@ -59,6 +60,7 @@ class ScriptDB(TypedObject):
     The ScriptDB adds the following properties:
       desc - optional description of script
       obj - the object the script is linked to, if any
+      player - the player the script is linked to (exclusive with obj)
       interval - how often script should run
       start_delay - if the script should start repeating right away
       repeats - how many times the script should repeat
@@ -82,6 +84,8 @@ class ScriptDB(TypedObject):
     # A reference to the database object affected by this Script, if any.
     db_obj = models.ForeignKey("objects.ObjectDB", null=True, blank=True, verbose_name='scripted object',
                                help_text='the object to store this script on, if not a global script.')
+    db_player = models.ForeignKey("players.PlayerDB", null=True, blank=True, verbose_name="scripted player",
+                               help_text='the player to store this script on (should not be set if obj is set)')
     # how often to run Script (secs). -1 means there is no timer
     db_interval = models.IntegerField('interval', default=-1, help_text='how often to repeat script, in seconds. -1 means off.')
     # start script right away or wait interval seconds first
@@ -106,15 +110,60 @@ class ScriptDB(TypedObject):
 
     def __init__(self, *args, **kwargs):
         super(ScriptDB, self).__init__(*args, **kwargs)
-        _SA(self, "attributes", AttributeHandler(self))
-        _SA(self, "tags", TagHandler(self))
+        _SA(self, "attributes", LazyLoadHandler(self, "attributes", AttributeHandler))
+        _SA(self, "tags", LazyLoadHandler(self, "tags", TagHandler))
         #_SA(self, "aliases", AliasHandler(self))
+
 
     #
     #
     # ScriptDB class properties
     #
     #
+
+    # obj property
+    def __get_obj(self):
+        """
+        property wrapper that homogenizes access to either
+        the db_player or db_obj field, using the same obj
+        property name
+        """
+        obj = _GA(self, "db_player")
+        if not obj:
+            obj = _GA(self, "db_obj")
+        if obj:
+            return obj.typeclass
+
+    def __set_obj(self, value):
+        """
+        Set player or obj to their right database field. If
+        a dbref is given, assume ObjectDB.
+        """
+        try:
+            value = _GA(value, "dbobj")
+        except AttributeError:
+            pass
+        if isinstance(value, (basestring, int)):
+            from src.objects.models import ObjectDB
+            value = to_str(value, force_string=True)
+            if (value.isdigit() or value.startswith("#")):
+                dbid = dbref(value, reqhash=False)
+                if dbid:
+                    try:
+                        value = ObjectDB.objects.get(id=dbid)
+                    except ObjectDoesNotExist:
+                        # maybe it is just a name that happens to look like a dbid
+                        pass
+        if value.__class__.__name__ == "PlayerDB":
+            fname = "db_player"
+            _SA(self, fname, value)
+        else:
+            fname = "db_obj"
+            _SA(self, fname, value)
+        # saving the field
+        _GA(self, "save")(update_fields=[fname])
+    obj = property(__get_obj, __set_obj)
+    object = property(__get_obj, __set_obj)
 
 
     def at_typeclass_error(self):
@@ -131,7 +180,9 @@ class ScriptDB(TypedObject):
 
     delete_iter = 0
     def delete(self):
+        "Delete script"
         if self.delete_iter > 0:
             return
         self.delete_iter += 1
+        _GA(self, "attributes").clear()
         super(ScriptDB, self).delete()

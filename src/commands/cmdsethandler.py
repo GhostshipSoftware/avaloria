@@ -63,6 +63,7 @@ can then implement separate sets for different situations. For
 example, you can have a 'On a boat' set, onto which you then tack on
 the 'Fishing' set. Fishing from a boat? No problem!
 """
+from django.conf import settings
 from src.utils import logger, utils
 from src.commands.cmdset import CmdSet
 from src.server.models import ServerConfig
@@ -71,7 +72,7 @@ from django.utils.translation import ugettext as _
 __all__ = ("import_cmdset", "CmdSetHandler")
 
 _CACHED_CMDSETS = {}
-
+_CMDSET_PATHS = utils.make_iter(settings.CMDSET_PATHS)
 
 class _ErrorCmdSet(CmdSet):
     "This is a special cmdset used to report errors"
@@ -84,12 +85,12 @@ class _EmptyCmdSet(CmdSet):
     priority = -101
     mergetype = "Union"
 
-def import_cmdset(python_path, cmdsetobj, emit_to_obj=None, no_logging=False):
+def import_cmdset(path, cmdsetobj, emit_to_obj=None, no_logging=False):
     """
     This helper function is used by the cmdsethandler to load a cmdset
     instance from a python module, given a python_path. It's usually accessed
     through the cmdsethandler's add() and add_default() methods.
-    python_path - This is the full path to the cmdset object.
+    path - This is the full path to the cmdset object on python dot-form
     cmdsetobj - the database object/typeclass on which this cmdset is to be
             assigned (this can be also channels and exits, as well as players
             but there will always be such an object)
@@ -101,7 +102,10 @@ def import_cmdset(python_path, cmdsetobj, emit_to_obj=None, no_logging=False):
     function returns None if an error was encountered or path not found.
     """
 
-    try:
+    python_paths = [path] + ["%s.%s" % (prefix, path)
+                                    for prefix in _CMDSET_PATHS if not path.startswith(prefix)]
+    errstring = ""
+    for python_path in python_paths:
         try:
             #print "importing %s: _CACHED_CMDSETS=%s" % (python_path, _CACHED_CMDSETS)
             wanted_cache_key = python_path
@@ -119,25 +123,26 @@ def import_cmdset(python_path, cmdsetobj, emit_to_obj=None, no_logging=False):
                 cmdsetclass = cmdsetclass(cmdsetobj)
             return cmdsetclass
 
-        except ImportError:
-            errstring = _("Error loading cmdset: Couldn't import module '%s'.")
-            errstring = errstring % modulepath
-            raise
+        except ImportError, e:
+            errstring += _("Error loading cmdset: Couldn't import module '%s': %s.")
+            errstring = errstring % (modulepath, e)
         except KeyError:
-            errstring = _("Error in loading cmdset: No cmdset class '%(classname)s' in %(modulepath)s.")
+            errstring += _("Error in loading cmdset: No cmdset class '%(classname)s' in %(modulepath)s.")
             errstring = errstring % {"classname": classname,
                                      "modulepath": modulepath}
-            raise
+        except SyntaxError, e:
+            errstring += _("SyntaxError encountered when loading cmdset '%s': %s.")
+            errstring = errstring % (modulepath, e)
         except Exception:
-            errstring = _("Compile/Run error when loading cmdset '%s'. Error was logged.")
-            errstring = errstring % (python_path)
-            raise
-    except Exception:
+            errstring += _("Compile/Run error when loading cmdset '%s': %s.")
+            errstring = errstring % (python_path, e)
+
+    if errstring:
         # returning an empty error cmdset
         if not no_logging:
-            logger.log_trace(errstring)
+            logger.log_errmsg(errstring)
             if emit_to_obj and not ServerConfig.objects.conf("server_starting_mode"):
-                object.__getattribute__(emit_to_obj, "msg")(errstring)
+                emit_to_obj.msg(errstring)
         err_cmdset = _ErrorCmdSet()
         err_cmdset.errmessage = errstring
         return err_cmdset
@@ -157,7 +162,7 @@ class CmdSetHandler(object):
     will re-calculate the 'current' cmdset.
     """
 
-    def __init__(self, obj):
+    def __init__(self, obj, init_true=True):
         """
         This method is called whenever an object is recreated.
 
@@ -178,7 +183,8 @@ class CmdSetHandler(object):
         # the subset of the cmdset_paths that are to be stored in the database
         self.permanent_paths = [""]
 
-        #self.update(init_mode=True) is then called from the object __init__.
+        if init_true:
+            self.update(init_mode=True) #is then called from the object __init__.
 
     def __str__(self):
         "Display current commands"
@@ -253,7 +259,7 @@ class CmdSetHandler(object):
                     elif path:
                         cmdset = self._import_cmdset(path)
                         if cmdset:
-                            cmdset.permanent = cmdset.key != '_ERROR_CMDSET'
+                            cmdset.permanent = cmdset.key != '_CMDSET_ERROR'
                             self.cmdset_stack.append(cmdset)
 
         # merge the stack into a new merged cmdset
@@ -289,9 +295,9 @@ class CmdSetHandler(object):
         handler. Not sure when this would be useful, but it's a 'quirk'
         that has to be documented.
         """
+        if not (isinstance(cmdset, basestring) or utils.inherits_from(cmdset, CmdSet)):
+            raise Exception(_("Only CmdSets can be added to the cmdsethandler!"))
         if callable(cmdset):
-            if not utils.inherits_from(cmdset, CmdSet):
-                raise Exception(_("Only CmdSets can be added to the cmdsethandler!"))
             cmdset = cmdset(self.obj)
         elif isinstance(cmdset, basestring):
             # this is (maybe) a python path. Try to import from cache.

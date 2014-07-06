@@ -21,9 +21,9 @@ from src.players.player import Player
 from src.utils import create, ansi
 from src.server.sessionhandler import SESSIONS
 
-from django.db.models.signals import pre_save
-from src.server.caches import field_pre_save
-pre_save.connect(field_pre_save, dispatch_uid="fieldcache")
+from django.db.models.signals import post_save
+from src.server.caches import field_post_save
+post_save.connect(field_post_save, dispatch_uid="fieldcache")
 
 # set up signal here since we are not starting the server
 
@@ -78,10 +78,12 @@ class CommandTest(TestCase):
     CID = 0 # we must set a different CID in every test to avoid unique-name collisions creating the objects
     def setUp(self):
         "sets up testing environment"
+        #print "creating player %i: %s" % (self.CID, self.__class__.__name__)
         self.player = create.create_player("TestPlayer%i" % self.CID, "test@test.com", "testpassword", typeclass=TestPlayerClass)
         self.player2 = create.create_player("TestPlayer%ib" % self.CID, "test@test.com", "testpassword", typeclass=TestPlayerClass)
         self.room1 = create.create_object("src.objects.objects.Room", key="Room%i"%self.CID, nohome=True)
         self.room1.db.desc = "room_desc"
+        settings.DEFAULT_HOME = "#%i" % self.room1.id # we must have a default home
         self.room2 = create.create_object("src.objects.objects.Room", key="Room%ib" % self.CID)
         self.obj1 = create.create_object(TestObjectClass, key="Obj%i" % self.CID, location=self.room1, home=self.room1)
         self.obj2 = create.create_object(TestObjectClass, key="Obj%ib" % self.CID, location=self.room1, home=self.room1)
@@ -268,11 +270,11 @@ class TestComms(CommandTest):
         self.call(comms.CmdAllCom(), "", "Available channels (use comlist,addcom and delcom to manage")
         self.call(comms.CmdClock(), "testchan=send:all()", "Lock(s) applied. Current locks on testchan:")
         self.call(comms.CmdCdesc(), "testchan = Test Channel", "Description of channel 'testchan' set to 'Test Channel'.")
-        self.call(comms.CmdCemit(), "testchan = Test Message", "Sent to channel testchan: [testchan] Test Message")
+        self.call(comms.CmdCemit(), "testchan = Test Message", "[testchan] Test Message|Sent to channel testchan: Test Message")
         self.call(comms.CmdCWho(), "testchan", "Channel subscriptions\ntestchan:\n  TestPlayer7")
-        self.call(comms.CmdPage(), "TestPlayer7b = Test", "You paged TestPlayer7b with: 'Test'.")
+        self.call(comms.CmdPage(), "TestPlayer7b = Test", "TestPlayer7b is offline. They will see your message if they list their pages later.|You paged TestPlayer7b with: 'Test'.")
         self.call(comms.CmdCBoot(), "", "Usage: @cboot[/quiet] <channel> = <player> [:reason]") # noone else connected to boot
-        self.call(comms.CmdCdestroy(), "testchan" ,"Channel 'testchan' was destroyed.")
+        self.call(comms.CmdCdestroy(), "testchan" ,"[testchan] TestPlayer7: testchan is being destroyed. Make sure to change your aliases.|Channel 'testchan' was destroyed.")
 
 
 from src.commands.default import batchprocess

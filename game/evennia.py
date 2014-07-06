@@ -16,6 +16,8 @@ from optparse import OptionParser
 from subprocess import Popen
 
 # Set the Python path up so we can get to settings.py from here.
+from django.core import management
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['DJANGO_SETTINGS_MODULE'] = 'game.settings'
 
@@ -264,6 +266,8 @@ def kill(pidfile, signal=SIG, succmsg="", errmsg="", restart_file=SERVER_RESTART
                 return
             os.remove(pidfile)
         # set restart/norestart flag
+        if restart == 'reload':
+            management.call_command('collectstatic', interactive=False, verbosity=0)
         f = open(restart_file, 'w')
         f.write(str(restart))
         f.close()
@@ -389,11 +393,13 @@ def handle_args(options, mode, service):
             if inter:
                 cmdstr.append('--iportal')
             cmdstr.append('--noserver')
+            management.call_command('collectstatic', verbosity=1, interactive=False)
         else:  # all
             # for convenience we don't start logging of
             # portal, only of server with this command.
             if inter:
                 cmdstr.extend(['--iserver'])
+            management.call_command('collectstatic', verbosity=1, interactive=False)
         return cmdstr
 
     elif mode == 'reload':
@@ -425,6 +431,7 @@ def handle_args(options, mode, service):
             kill(SERVER_PIDFILE, SIG, "Server stopped.", errmsg % 'Server', restart="shutdown")
     return None
 
+
 def error_check_python_modules():
     """
     Import settings modules in settings. This will raise exceptions on
@@ -449,7 +456,8 @@ def error_check_python_modules():
         imp(path, split=False)
     # cmdsets
 
-    deprstring = "settings.%s should be renamed to %s. If defaults are used, their path/classname must be updated (see src/settings_default.py)."
+    deprstring = "settings.%s should be renamed to %s. If defaults are used, " \
+                 "their path/classname must be updated (see src/settings_default.py)."
     if hasattr(settings, "CMDSET_DEFAULT"):
         raise DeprecationWarning(deprstring % ("CMDSET_DEFAULT", "CMDSET_CHARACTER"))
     if hasattr(settings, "CMDSET_OOC"):
@@ -460,6 +468,9 @@ def error_check_python_modules():
         raise DeprecationWarning(deprstring % ("BASE_COMM_TYPECLASS", "BASE_CHANNEL_TYPECLASS"))
     if hasattr(settings, "COMM_TYPECLASS_PATHS"):
         raise DeprecationWarning(deprstring % ("COMM_TYPECLASS_PATHS", "CHANNEL_TYPECLASS_PATHS"))
+    if hasattr(settings, "CHARACTER_DEFAULT_HOME"):
+        raise DeprecationWarning("settings.CHARACTER_DEFAULT_HOME should be renamed to DEFAULT_HOME. " \
+                "See also settings.START_LOCATION (see src/settings_default.py).")
 
     from src.commands import cmdsethandler
     if not cmdsethandler.import_cmdset(settings.CMDSET_UNLOGGEDIN, None): print "Warning: CMDSET_UNLOGGED failed to load!"
@@ -505,7 +516,7 @@ def main():
     if mode not in ['menu', 'start', 'reload', 'stop']:
         print "mode should be none, 'menu', 'start', 'reload' or 'stop'."
         sys.exit()
-    if  service not in ['server', 'portal', 'all']:
+    if service not in ['server', 'portal', 'all']:
         print "service should be none, 'server', 'portal' or 'all'."
         sys.exit()
 

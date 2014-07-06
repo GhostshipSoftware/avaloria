@@ -21,7 +21,7 @@ MULTISESSION_MODE = settings.MULTISESSION_MODE
 CONNECTION_SCREEN_MODULE = settings.CONNECTION_SCREEN_MODULE
 CONNECTION_SCREEN = ""
 try:
-    CONNECTION_SCREEN = ansi.parse_ansi(utils.string_from_module(CONNECTION_SCREEN_MODULE))
+    CONNECTION_SCREEN = ansi.parse_ansi(utils.random_string_from_module(CONNECTION_SCREEN_MODULE))
 except Exception:
     pass
 if not CONNECTION_SCREEN:
@@ -43,6 +43,7 @@ class CmdUnconnectedConnect(MuxCommand):
     key = "connect"
     aliases = ["conn", "con", "co"]
     locks = "cmd:all()"  # not really needed
+    arg_regex = r"\s.*?|$"
 
     def func(self):
         """
@@ -116,6 +117,7 @@ class CmdUnconnectedCreate(MuxCommand):
     key = "create"
     aliases = ["cre", "cr"]
     locks = "cmd:all()"
+    arg_regex = r"\s.*?|$"
 
     def func(self):
         "Do checks and create account"
@@ -158,7 +160,7 @@ class CmdUnconnectedCreate(MuxCommand):
 
         # everything's ok. Create the new player account.
         try:
-            default_home = ObjectDB.objects.get_id(settings.CHARACTER_DEFAULT_HOME)
+            default_home = ObjectDB.objects.get_id(settings.DEFAULT_HOME)
 
             typeclass = settings.BASE_CHARACTER_TYPECLASS
             permissions = settings.PERMISSION_PLAYER_DEFAULT
@@ -181,15 +183,19 @@ class CmdUnconnectedCreate(MuxCommand):
             pchanneldef = settings.CHANNEL_PUBLIC
             if pchanneldef:
                 pchannel = ChannelDB.objects.get_channel(pchanneldef[0])
-                if not pchannel.connect_to(new_player):
+                if not pchannel.connect(new_player):
                     string = "New player '%s' could not connect to public channel!" % new_player.key
                     logger.log_errmsg(string)
 
             if MULTISESSION_MODE < 2:
                 # if we only allow one character, create one with the same name as Player
                 # (in mode 2, the character must be created manually once logging in)
+                start_location = ObjectDB.objects.get_id(settings.START_LOCATION)
+                if not start_location:
+                    start_location = default_home # fallback
+
                 new_character = create.create_object(typeclass, key=playername,
-                                          location=default_home, home=default_home,
+                                          location=start_location, home=default_home,
                                           permissions=permissions)
                 # set playable character list
                 new_player.db._playable_characters.append(new_character)

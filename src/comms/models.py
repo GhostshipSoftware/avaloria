@@ -27,11 +27,10 @@ from src.utils.idmapper.models import SharedMemoryModel
 from src.comms import managers
 from src.comms.managers import identify_object
 from src.locks.lockhandler import LockHandler
-from src.utils import logger
-from src.utils.utils import to_str, crop, make_iter
+from src.utils.utils import crop, make_iter, LazyLoadHandler
 
-__all__ = ("Msg", "TempMsg", "ChannelDB",
-            "PlayerChannelConnection", "ExternalChannelConnection")
+__all__ = ("Msg", "TempMsg", "ChannelDB")
+
 
 _GA = object.__getattribute__
 _SA = object.__setattr__
@@ -100,10 +99,11 @@ class Msg(SharedMemoryModel):
 
     # Database manager
     objects = managers.MsgManager()
+    _is_deleted = False
 
     def __init__(self, *args, **kwargs):
         SharedMemoryModel.__init__(self, *args, **kwargs)
-        self.locks = LockHandler(self)
+        #_SA(self, "locks", LazyLoadHandler(self, "locks", LockHandler))
         self.extra_senders = []
 
     class Meta:
@@ -136,9 +136,6 @@ class Msg(SharedMemoryModel):
                 self.db_sender_players.add(obj)
             elif typ == 'object':
                 self.db_sender_objects.add(obj)
-            elif typ == 'external':
-                self.db_sender_external = "1"
-                self.extra_senders.append(obj)
             elif isinstance(typ, basestring):
                 self.db_sender_external = obj
             elif not obj:
@@ -165,9 +162,6 @@ class Msg(SharedMemoryModel):
                 self.db_sender_players.remove(obj)
             elif typ == 'object':
                 self.db_sender_objects.remove(obj)
-            elif typ == 'external':
-                self.extra_senders = [receiver for receiver in
-                    self.extra_senders if receiver != obj]
             elif isinstance(obj, basestring):
                 self.db_sender_external = obj
             else:
@@ -305,7 +299,7 @@ class TempMsg(object):
         self.header = header
         self.message = message
         self.lock_storage = lockstring
-        self.locks = LockHandler(self)
+        self.locks = LazyLoadHandler(self, "locks", LockHandler)
         self.hide_from = hide_from and make_iter(hide_from) or []
         self.date_sent = datetime.now()
 
@@ -356,6 +350,8 @@ class ChannelDB(TypedObject):
       permissions - perm strings
 
     """
+    db_subscriptions = models.ManyToManyField("players.PlayerDB",
+                       related_name="subscription_set", null=True, verbose_name='subscriptions', db_index=True)
 
     # Database manager
     objects = managers.ChannelManager()
@@ -365,9 +361,9 @@ class ChannelDB(TypedObject):
 
     def __init__(self, *args, **kwargs):
         TypedObject.__init__(self, *args, **kwargs)
-        _SA(self, "attributes", AttributeHandler(self))
-        _SA(self, "tags", TagHandler(self))
-        _SA(self, "aliases", AliasHandler(self))
+        _SA(self, "tags", LazyLoadHandler(self, "tags", TagHandler))
+        _SA(self, "attributes", LazyLoadHandler(self, "attributes", AttributeHandler))
+        _SA(self, "aliases", LazyLoadHandler(self, "aliases", AliasHandler))
 
     class Meta:
         "Define Django meta options"
@@ -386,46 +382,43 @@ class ChannelDB(TypedObject):
         Checks so this player is actually listening
         to this channel.
         """
-        # also handle object.player calls
-        player, typ = identify_object(player)
-        if typ == 'object':
+        if hasattr(player, "player"):
             player = player.player
-            player, typ = identify_object(player)
-        if player and not typ == "player":
-            logger.log_errmsg("Channel.has_connection received object of type '%s'. It only accepts players/characters." % typ)
-            return
-        # do the check
-        return PlayerChannelConnection.objects.has_player_connection(player, self)
+        player = player.dbobj
+        return player in self.db_subscriptions.all()
 
-    def connect_to(self, player):
-        "Connect the user to this channel"
-        self.typeclass.pre_join_channel(player)
+    def connect(self, player):
+        "Connect the user to this channel. This checks access."
+        if hasattr(player, "player"):
+            player = player.player
+        player = player.typeclass
+        # check access
         if not self.access(player, 'listen'):
             return False
+        # pre-join hook
         connect = self.typeclass.pre_join_channel(player)
         if not connect:
             return False
-        player = player.dbobj
-        conn = PlayerChannelConnection.objects.create_connection(player, self)
-        if conn:
-            self.typeclass.post_join_channel(player)
-            return True
-        return False
+        # subscribe
+        self.db_subscriptions.add(player.dbobj)
+        # post-join hook
+        self.typeclass.post_join_channel(player)
+        return True
 
-    def disconnect_from(self, player):
+    def disconnect(self, player):
         "Disconnect user from this channel."
+        if hasattr(player, "player"):
+            player = player.player
+        player = player.typeclass
+        # pre-disconnect hook
         disconnect = self.typeclass.pre_leave_channel(player)
         if not disconnect:
             return False
-        PlayerChannelConnection.objects.break_connection(player, self)
-        self.typeclass.post_leave_channel(player)
+        # disconnect
+        self.db_subscriptions.remove(player)
+        # post-disconnect hook
+        self.typeclass.post_leave_channel(player.dbobj)
         return True
-
-    def delete(self):
-        "Clean out all connections to this channel and delete it."
-        for connection in ChannelDB.objects.get_all_connections(self):
-            connection.delete()
-        super(ChannelDB, self).delete()
 
     def access(self, accessing_obj, access_type='listen', default=False):
         """
@@ -436,214 +429,12 @@ class ChannelDB(TypedObject):
         """
         return self.locks.check(accessing_obj, access_type=access_type, default=default)
 
-
-class PlayerChannelConnection(SharedMemoryModel):
-    """
-    This connects a player object to a particular comm channel.
-    The advantage of making it like this is that one can easily
-    break the connection just by deleting this object.
-    """
-
-    # Player connected to a channel
-    db_player = models.ForeignKey("players.PlayerDB", verbose_name='player')
-    # Channel the player is connected to
-    db_channel = models.ForeignKey(ChannelDB, verbose_name='channel')
-
-    # Database manager
-    objects = managers.PlayerChannelConnectionManager()
-
-    # player property (wraps db_player)
-    #@property
-    def player_get(self):
-        "Getter. Allows for value = self.player"
-        return self.db_player
-
-    #@player.setter
-    def player_set(self, value):
-        "Setter. Allows for self.player = value"
-        self.db_player = value
-        self.save()
-
-    #@player.deleter
-    def player_del(self):
-        "Deleter. Allows for del self.player. Deletes connection."
-        self.delete()
-    player = property(player_get, player_set, player_del)
-
-    # channel property (wraps db_channel)
-    #@property
-    def channel_get(self):
-        "Getter. Allows for value = self.channel"
-        return self.db_channel.typeclass
-
-    #@channel.setter
-    def channel_set(self, value):
-        "Setter. Allows for self.channel = value"
-        self.db_channel = value.dbobj
-        self.save()
-
-    #@channel.deleter
-    def channel_del(self):
-        "Deleter. Allows for del self.channel. Deletes connection."
-        self.delete()
-    channel = property(channel_get, channel_set, channel_del)
-
-    def __str__(self):
-        return "Connection Player '%s' <-> %s" % (self.player, self.channel)
-
-    class Meta:
-        "Define Django meta options"
-        verbose_name = "Channel<->Player link"
-        verbose_name_plural = "Channel<->Player links"
-
-
-class ExternalChannelConnection(SharedMemoryModel):
-    """
-    This defines an external protocol connecting to
-    a channel, while storing some critical info about
-    that connection.
-    """
-    # evennia channel connecting to
-    db_channel = models.ForeignKey(ChannelDB, verbose_name='channel',
-                                   help_text='which channel this connection is tied to.')
-    # external connection identifier
-    db_external_key = models.CharField('external key', max_length=128,
-                                       help_text='external connection identifier, used by calling protocol.')
-    # eval-code to use when the channel tries to send a message
-    # to the external protocol.
-    db_external_send_code = models.TextField('executable code', blank=True,
-           help_text='this is a custom snippet of Python code to connect the external protocol to the in-game channel.')
-    # custom config for the connection
-    db_external_config = models.TextField('external config', blank=True,
-                                          help_text='configuration options on form understood by connection.')
-    # activate the connection
-    db_is_enabled = models.BooleanField('is enabled', default=True, help_text='turn on/off the connection.')
-
-    objects = managers.ExternalChannelConnectionManager()
-
-    class Meta:
-        verbose_name = "External Channel Connection"
-
-    def __str__(self):
-        return "%s <-> external %s" % (self.channel.key, self.db_external_key)
-
-    # channel property (wraps db_channel)
-    #@property
-    def channel_get(self):
-        "Getter. Allows for value = self.channel"
-        return self.db_channel
-    #@channel.setter
-
-    def channel_set(self, value):
-        "Setter. Allows for self.channel = value"
-        self.db_channel = value
-        self.save()
-
-    #@channel.deleter
-    def channel_del(self):
-        "Deleter. Allows for del self.channel. Deletes connection."
-        self.delete()
-    channel = property(channel_get, channel_set, channel_del)
-
-    # external_key property (wraps db_external_key)
-    #@property
-    def external_key_get(self):
-        "Getter. Allows for value = self.external_key"
-        return self.db_external_key
-
-    #@external_key.setter
-    def external_key_set(self, value):
-        "Setter. Allows for self.external_key = value"
-        self.db_external_key = value
-        self.save()
-
-    #@external_key.deleter
-    def external_key_del(self):
-        "Deleter. Allows for del self.external_key. Deletes connection."
-        self.delete()
-    external_key = property(external_key_get, external_key_set, external_key_del)
-
-    # external_send_code property (wraps db_external_send_code)
-    #@property
-    def external_send_code_get(self):
-        "Getter. Allows for value = self.external_send_code"
-        return self.db_external_send_code
-
-    #@external_send_code.setter
-    def external_send_code_set(self, value):
-        "Setter. Allows for self.external_send_code = value"
-        self.db_external_send_code = value
-        self.save()
-
-    #@external_send_code.deleter
-    def external_send_code_del(self):
-        "Deleter. Allows for del self.external_send_code. Deletes connection."
-        self.db_external_send_code = ""
-        self.save()
-    external_send_code = property(external_send_code_get, external_send_code_set, external_send_code_del)
-
-    # external_config property (wraps db_external_config)
-    #@property
-    def external_config_get(self):
-        "Getter. Allows for value = self.external_config"
-        return self.db_external_config
-
-    #@external_config.setter
-    def external_config_set(self, value):
-        "Setter. Allows for self.external_config = value"
-        self.db_external_config = value
-        self.save()
-
-    #@external_config.deleter
-    def external_config_del(self):
-        "Deleter. Allows for del self.external_config. Deletes connection."
-        self.db_external_config = ""
-        self.save()
-    external_config = property(external_config_get, external_config_set, external_config_del)
-
-    # is_enabled property (wraps db_is_enabled)
-    #@property
-    def is_enabled_get(self):
-        "Getter. Allows for value = self.is_enabled"
-        return self.db_is_enabled
-
-    #@is_enabled.setter
-    def is_enabled_set(self, value):
-        "Setter. Allows for self.is_enabled = value"
-        self.db_is_enabled = value
-        self.save()
-
-    #@is_enabled.deleter
-    def is_enabled_del(self):
-        "Deleter. Allows for del self.is_enabled. Deletes connection."
-        self.delete()
-    is_enabled = property(is_enabled_get, is_enabled_set, is_enabled_del)
-
-    #
-    # methods
-    #
-
-    def to_channel(self, message, *args, **kwargs):
-        "Send external -> channel"
-        #if 'from_obj' in kwargs and kwargs.pop('from_obj'):
-        #    from_obj = self.external_key
-        self.channel.msg(message, senders=[self], *args, **kwargs)
-
-    def to_external(self, message, senders=None, from_channel=None):
-        "Send channel -> external"
-
-        # make sure we are not echoing back our own message to ourselves
-        # (this would result in a nasty infinite loop)
-        #print senders
-        if self in make_iter(senders):  #.external_key:
-            return
-
-        try:
-            # we execute the code snippet that should make it possible for the
-            # connection to contact the protocol correctly (as set by the
-            # protocol).
-            # Note that the code block has access to the variables here, such
-            # as message, from_obj and from_channel.
-            exec(to_str(self.external_send_code))
-        except Exception:
-            logger.log_trace("Channel %s could not send to External %s" % (self.channel, self.external_key))
+    def delete(self):
+        """
+        Deletes channel while also cleaning up channelhandler
+        """
+        _GA(self, "attributes").clear()
+        _GA(self, "aliases").clear()
+        super(ChannelDB, self).delete()
+        from src.comms.channelhandler import CHANNELHANDLER
+        CHANNELHANDLER.update()

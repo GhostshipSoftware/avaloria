@@ -3,7 +3,7 @@ Default Typeclass for Comms.
 
 See objects.objects for more information on Typeclassing.
 """
-from src.comms import Msg, TempMsg, ChannelDB
+from src.comms import Msg, TempMsg
 from src.typeclasses.typeclass import TypeClass
 from src.utils import logger
 from src.utils.utils import make_iter
@@ -14,8 +14,8 @@ class Channel(TypeClass):
     This is the base class for all Comms. Inherit from this to create different
     types of communication channels.
     """
-    def __init__(self, dbobj):
-        super(Channel, self).__init__(dbobj)
+
+    # helper methods, for easy overloading
 
     def channel_prefix(self, msg=None, emit=False):
         """
@@ -107,6 +107,7 @@ class Channel(TypeClass):
         """
         Run at channel creation.
         """
+        pass
 
     def pre_join_channel(self, joiner):
         """
@@ -132,6 +133,7 @@ class Channel(TypeClass):
         """
         Run right after an object or player leaves a channel.
         """
+        pass
 
     def pre_send_message(self, msg):
         """
@@ -146,6 +148,7 @@ class Channel(TypeClass):
         """
         Run after a message is sent to the channel.
         """
+        pass
 
     def at_init(self):
         """
@@ -155,6 +158,7 @@ class Channel(TypeClass):
         in some way after being created but also after each server
         restart or reload.
         """
+        pass
 
     def distribute_message(self, msg, online=False):
         """
@@ -162,15 +166,14 @@ class Channel(TypeClass):
         this channel, and sending them a message.
         """
         # get all players connected to this channel and send to them
-        for conn in ChannelDB.objects.get_all_connections(self, online=online):
+        for player in self.dbobj.db_subscriptions.all():
+            player = player.typeclass
             try:
-                conn.player.msg(msg.message, from_obj=msg.senders)
-            except AttributeError:
-                try:
-                    conn.to_external(msg.message,
-                                     senders=msg.senders, from_channel=self)
-                except Exception:
-                    logger.log_trace("Cannot send msg to connection '%s'" % conn)
+                # note our addition of the from_channel keyword here. This could be checked
+                # by a custom player.msg() to treat channel-receives differently.
+                player.msg(msg.message, from_obj=msg.senders, from_channel=self.id)
+            except AttributeError, e:
+                logger.log_trace("%s\nCannot send msg to player '%s'." % (e, player))
 
     def msg(self, msgobj, header=None, senders=None, sender_strings=None,
             persistent=False, online=False, emit=False, external=False):

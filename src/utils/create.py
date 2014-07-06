@@ -59,7 +59,12 @@ def handle_dbref(inp, objclass, raise_errors=True):
     objects.
     """
     if not (isinstance(inp, basestring) and inp.startswith("#")):
-        return inp
+        try:
+            return inp.dbobj
+        except AttributeError:
+            return inp
+
+    # a string, analyze it
     inp = inp.lstrip('#')
     try:
         if int(inp) < 0:
@@ -67,7 +72,7 @@ def handle_dbref(inp, objclass, raise_errors=True):
     except ValueError:
         return None
 
-    # if we get to this point, inp is an integer dbref
+    # if we get to this point, inp is an integer dbref; get the matching object
     try:
         return objclass.objects.get(id=inp)
     except Exception:
@@ -98,7 +103,7 @@ def create_object(typeclass=None, key=None, location=None,
               containing the error message. If set, this method will return
               None upon errors.
     nohome - this allows the creation of objects without a default home location;
-             this only used when creating default location itself or during unittests
+             this only used when creating the default location itself or during unittests
     """
     global _Object, _ObjectDB
     if not _Object:
@@ -116,28 +121,30 @@ def create_object(typeclass=None, key=None, location=None,
     elif isinstance(typeclass, _Object) or utils.inherits_from(typeclass, _Object):
         # this is already an object typeclass, extract its path
         typeclass = typeclass.path
-
-    # handle eventual #dbref input
-    location = handle_dbref(location, _ObjectDB)
-    home = handle_dbref(home, _ObjectDB)
-    destination = handle_dbref(destination, _ObjectDB)
-    report_to = handle_dbref(report_to, _ObjectDB)
-
-    # create new database object
-    new_db_object = _ObjectDB()
-
-    # assign the typeclass
     typeclass = utils.to_unicode(typeclass)
-    new_db_object.typeclass_path = typeclass
 
-    # the name/key is often set later in the typeclass. This
-    # is set here as a failsafe.
-    if key:
-        new_db_object.key = key
-    else:
+    # Setup input for the create command
+
+    location = handle_dbref(location, _ObjectDB)
+    destination = handle_dbref(destination, _ObjectDB)
+    home = handle_dbref(home, _ObjectDB)
+    if not home:
+        try:
+            home = handle_dbref(settings.DEFAULT_HOME, _ObjectDB) if not nohome else None
+        except _ObjectDB.DoesNotExist:
+            raise _ObjectDB.DoesNotExist("settings.DEFAULT_HOME (= '%s') does not exist, or the setting is malformed." %
+                                         settings.DEFAULT_HOME)
+
+    # create new database object all in one go
+    new_db_object = _ObjectDB(db_key=key, db_location=location,
+                              db_destination=destination, db_home=home,
+                              db_typeclass_path=typeclass)
+
+    if not key:
+        # the object should always have a key, so if not set we give a default
         new_db_object.key = "#%i" % new_db_object.dbid
 
-    # this will either load the typeclass or the default one
+    # this will either load the typeclass or the default one (will also save object)
     new_object = new_db_object.typeclass
 
     if not _GA(new_object, "is_typeclass")(typeclass, exact=True):
@@ -145,7 +152,8 @@ def create_object(typeclass=None, key=None, location=None,
         # gave us a default
         SharedMemoryModel.delete(new_db_object)
         if report_to:
-            _GA(report_to, "msg")("Error creating %s (%s):\n%s" % (new_db_object.key, typeclass,
+            report_to = handle_dbref(report_to, _ObjectDB)
+            _GA(report_to, "msg")("Error creating %s (%s).\n%s" % (new_db_object.key, typeclass,
                                                                  _GA(new_db_object, "typeclass_last_errmsg")))
             return None
         else:
@@ -154,15 +162,26 @@ def create_object(typeclass=None, key=None, location=None,
     # from now on we can use the typeclass object
     # as if it was the database object.
 
-    new_object.destination = destination
-
-    # call the hook method. This is where all at_creation
+    # call the hook methods. This is where all at_creation
     # customization happens as the typeclass stores custom
     # things on its database object.
+
+    # note - this may override input keys, locations etc!
     new_object.basetype_setup()  # setup the basics of Exits, Characters etc.
     new_object.at_object_creation()
 
-    # custom-given perms/locks overwrite hooks
+    # we want the input to override that set in the hooks, so
+    # we re-apply those if needed
+    if new_object.key != key:
+        new_object.key = key
+    if new_object.location != location:
+        new_object.location = location
+    if new_object.home != home:
+        new_object.home = home
+    if new_object.destination != destination:
+        new_object.destination = destination
+
+    # custom-given perms/locks do overwrite hooks
     if permissions:
         new_object.permissions.add(permissions)
     if locks:
@@ -170,28 +189,14 @@ def create_object(typeclass=None, key=None, location=None,
     if aliases:
         new_object.aliases.add(aliases)
 
-    # perform a move_to in order to display eventual messages.
-    if home:
-        new_object.home = home
-    else:
-        # we shouldn't need to handle dbref here (home handler should fix it), but some have
-        # reported issues here (issue 446).
-        try:
-            new_object.home = handle_dbref(settings.CHARACTER_DEFAULT_HOME, _ObjectDB) if not nohome else None
-        except _ObjectDB.DoesNotExist:
-            raise _ObjectDB.DoesNotExist("CHARACTER_DEFAULT_HOME (= '%s') does not exist, or the setting is malformed." %
-                                         settings.CHARACTER_DEFAULT_HOME)
-
+    # trigger relevant move_to hooks in order to display messages.
     if location:
-        new_object.move_to(location, quiet=True)
-    else:
-        # rooms would have location=None.
-        new_object.location = None
+        new_object.at_object_receive(new_object, None)
+        new_object.at_after_move(new_object)
 
     # post-hook setup (mainly used by Exits)
     new_object.basetype_posthook_setup()
 
-    new_object.save()
     return new_object
 
 #alias for create_object
@@ -202,7 +207,7 @@ object = create_object
 # Script creation
 #
 
-def create_script(typeclass, key=None, obj=None, locks=None,
+def create_script(typeclass, key=None, obj=None, player=None, locks=None,
                   interval=None, start_delay=None, repeats=None,
                   persistent=None, autostart=True, report_to=None):
     """
@@ -273,10 +278,9 @@ def create_script(typeclass, key=None, obj=None, locks=None,
             raise Exception(_GA(new_db_script, "typeclass_last_errmsg"))
 
     if obj:
-        try:
-            new_script.obj = obj
-        except ValueError:
-            new_script.obj = obj.dbobj
+        new_script.obj = obj
+    if player:
+        new_script.player = player
 
     # call the hook method. This is where all at_creation
     # customization happens as the typeclass stores custom
@@ -492,7 +496,7 @@ def create_player(key, email, password,
     if not email:
         email = "dummy@dummy.com"
     if _PlayerDB.objects.filter(username__iexact=key):
-        raise ValueError("A Player with this name already exists.")
+        raise ValueError("A Player with the name '%s' already exists." % key)
 
     # this handles a given dbref-relocate to a player.
     report_to = handle_dbref(report_to, _PlayerDB)

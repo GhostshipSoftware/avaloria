@@ -7,7 +7,7 @@ All commands in Evennia inherit from the 'Command' class in this module.
 
 import re
 from src.locks.lockhandler import LockHandler
-from src.utils.utils import is_iter, fill
+from src.utils.utils import is_iter, fill, LazyLoadHandler
 
 
 def _init_command(mcs, **kwargs):
@@ -155,7 +155,7 @@ class Command(object):
         overloading evential same-named class properties."""
         if kwargs:
             _init_command(self, **kwargs)
-        self.lockhandler = LockHandler(self)
+        self.lockhandler = LazyLoadHandler(self, "lockhandler", LockHandler)
 
     def __str__(self):
         "Print the command"
@@ -288,12 +288,12 @@ class Command(object):
         string += "-" * 50
         string += "\nname of cmd (self.key): {w%s{n\n" % self.key
         string += "cmd aliases (self.aliases): {w%s{n\n" % self.aliases
-        string += "cmd perms (self.permissions): {w%s{n\n" % self.permissions
-        string += "help category (self.help_category): {w%s{n\n" % self.help_category
+        string += "cmd locks (self.locks): {w%s{n\n" % self.locks
+        string += "help category (self.help_category): {w%s{n\n" % self.help_category.capitalize()
         string += "object calling (self.caller): {w%s{n\n" % self.caller
         string += "object storing cmdset (self.obj): {w%s{n\n" % self.obj
         string += "command string given (self.cmdstring): {w%s{n\n" % self.cmdstring
         # show cmdset.key instead of cmdset to shorten output
-        string += fill("current cmdset (self.cmdset): {w%s{n\n" % self.cmdset)
+        string += fill("current cmdset (self.cmdset): {w%s{n\n" % (self.cmdset.key if self.cmdset.key else self.cmdset.__class__))
 
         self.caller.msg(string)

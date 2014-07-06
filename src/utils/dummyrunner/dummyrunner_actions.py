@@ -113,7 +113,7 @@ def c_digs(client):
     exitname1 = EXIT_TEMPLATE % client.counter()
     exitname2 = EXIT_TEMPLATE % client.counter()
     client.exits.extend([exitname1, exitname2])
-    cmd = '@dig %s = %s, %s' % (roomname, exitname1, exitname2)
+    cmd = '@dig/tel %s = %s, %s' % (roomname, exitname1, exitname2)
     return cmd, "digs ..."
 
 def c_creates_obj(client):
@@ -168,7 +168,6 @@ def c_moves(client):
 #            (0.1, c_help),
 #            (0.01, c_digs),
 #            (0.01, c_creates_obj),
-#            #(0.1, c_creates_button),
 #            (0.3, c_moves))
 ## "heavy" builder definition
 #ACTIONS = ( c_login,
@@ -191,19 +190,22 @@ def c_moves(client):
 #            #(0.1, c_creates_button),
 #            #(0.4, c_moves))
 ## "normal player" definition
-#ACTIONS = ( c_login,
-#            c_logout,
-#            (0.01, c_digs),
-#            (0.1, c_socialize),
-#            (0.39, c_looks),
-#            (0.1, c_help),
-#            (0.4, c_moves))
+ACTIONS = ( c_login,
+            c_logout,
+            (0.01, c_digs),
+            (0.39, c_looks),
+            (0.2, c_help),
+            (0.4, c_moves))
 ## "socializing heavy builder" definition
-ACTIONS = (c_login,
-           c_logout,
-           (0.1, c_socialize),
-           (0.1, c_looks),
-           (0.1, c_help),
-           (0.2, c_creates_obj),
-           (0.2, c_digs),
-           (0.3, c_moves))
+#ACTIONS = (c_login,
+#           c_logout,
+#           (0.1, c_socialize),
+#           (0.1, c_looks),
+#           (0.2, c_help),
+#           (0.1, c_creates_obj),
+#           (0.2, c_digs),
+#           (0.3, c_moves))
+## "heavy digger memory tester" definition
+#ACTIONS = (c_login,
+#           c_logout,
+#           (1.0, c_digs))

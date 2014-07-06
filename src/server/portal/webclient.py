@@ -17,11 +17,12 @@ found on http://localhost:8000/webclient.)
                  to sessions connected over the webclient.
 """
 import time
+import json
+
 from hashlib import md5
 
 from twisted.web import server, resource
 
-from django.utils import simplejson
 from django.utils.functional import Promise
 from django.utils.encoding import force_unicode
 from django.conf import settings
@@ -32,13 +33,12 @@ from src.server import session
 SERVERNAME = settings.SERVERNAME
 ENCODINGS = settings.ENCODINGS
 
-
 # defining a simple json encoder for returning
 # django data to the client. Might need to
 # extend this if one wants to send more
 # complex database objects too.
 
-class LazyEncoder(simplejson.JSONEncoder):
+class LazyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Promise):
             return force_unicode(obj)
@@ -46,7 +46,7 @@ class LazyEncoder(simplejson.JSONEncoder):
 
 
 def jsonify(obj):
-    return utils.to_str(simplejson.dumps(obj, ensure_ascii=False, cls=LazyEncoder))
+    return utils.to_str(json.dumps(obj, ensure_ascii=False, cls=LazyEncoder))
 
 
 #

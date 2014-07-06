@@ -72,14 +72,15 @@ def crop(text, width=78, suffix="[...]"):
     """
     Crop text to a certain width, adding suffix to show the line
     continues. Cropping will be done so that the suffix will also fit
-    within the given width.
+    within the given width. If width is too small to fit both crop
+    and suffix, crop without the suffix.
     """
     ltext = len(to_str(text))
     if ltext <= width:
         return text
     else:
         lsuffix = len(suffix)
-        return "%s%s" % (text[:width - lsuffix], suffix)
+        return text[:width] if lsuffix >= width else "%s%s" % (text[:width - lsuffix], suffix)
 
 
 def dedent(text):
@@ -109,16 +110,20 @@ def list_to_string(inlist, endsep="and", addquote=False):
      with addquote and endsep
         [1,2,3] -> '"1", "2" and "3"'
     """
+    if not endsep:
+        endsep = ","
+    else:
+        endsep = " " + endsep
     if not inlist:
         return ""
     if addquote:
         if len(inlist) == 1:
             return "\"%s\"" % inlist[0]
-        return ", ".join("\"%s\"" % v for v in inlist[:-1]) + " %s %s" % (endsep, "\"%s\"" % inlist[-1])
+        return ", ".join("\"%s\"" % v for v in inlist[:-1]) + "%s %s" % (endsep, "\"%s\"" % inlist[-1])
     else:
         if len(inlist) == 1:
             return str(inlist[0])
-        return ", ".join(str(v) for v in inlist[:-1]) + " %s %s" % (endsep, inlist[-1])
+        return ", ".join(str(v) for v in inlist[:-1]) + "%s %s" % (endsep, inlist[-1])
 
 
 def wildcard_to_regexp(instring):
@@ -289,10 +294,17 @@ def get_evennia_version():
 def pypath_to_realpath(python_path, file_ending='.py'):
     """
     Converts a path on dot python form (e.g. 'src.objects.models') to
-    a system path ($BASE_PATH/src/objects/models.py). Calculates all paths as
-    absoulte paths starting from the evennia main directory.
+    a system path ($BASE_PATH/src/objects/models.py). Calculates all
+    paths as absoulte paths starting from the evennia main directory.
+
+    Since it seems to be a common mistake to include the file ending
+    when entering filename for things like batchprocess, we handle the
+    case of erroneously adding the file ending too.
     """
     pathsplit = python_path.strip().split('.')
+    if python_path.endswith(file_ending):
+        # this is actually a malformed path ...
+        pathsplit = pathsplit[:-1]
     if not pathsplit:
         return python_path
     path = settings.BASE_PATH
@@ -305,9 +317,9 @@ def pypath_to_realpath(python_path, file_ending='.py'):
 
 def dbref(dbref, reqhash=True):
     """
-    Converts/checks if input is a valid dbref.
-    If reqhash is set, only input strings on the form '#N', where N is an
-    integer is accepted. Otherwise strings '#N', 'N' and integers N are all
+    Converts/checks if input is a valid dbref.  If reqhash is set,
+    only input strings on the form '#N', where N is an integer is
+    accepted. Otherwise strings '#N', 'N' and integers N are all
     accepted.
      Output is the integer part.
     """
@@ -780,6 +792,8 @@ def all_from_module(module):
     Return all global-level variables from a module as a dict
     """
     mod = mod_import(module)
+    if not mod:
+        return {}
     return dict((key, val) for key, val in mod.__dict__.items()
                             if not (key.startswith("_") or ismodule(val)))
 
@@ -788,7 +802,7 @@ def variable_from_module(module, variable=None, default=None):
     """
     Retrieve a variable or list of variables from a module. The variable(s)
     must be defined globally in the module. If no variable is given (or a
-    list entry is None), a random variable is extracted from the module.
+    list entry is None), all global variables are extracted from the module.
 
     If module cannot be imported or given variable not found, default
     is returned.
@@ -798,7 +812,7 @@ def variable_from_module(module, variable=None, default=None):
       variable (string or iterable) - single variable name or iterable of
                                       variable names to extract
       default (string) - default value to use if a variable fails
-                         to be extracted.
+                         to be extracted. Ignored if variable is not given
     Returns:
       a single value or a list of values depending on the type of
         'variable' argument. Errors in lists are replaced by the
@@ -807,18 +821,20 @@ def variable_from_module(module, variable=None, default=None):
 
     if not module:
         return default
+
     mod = mod_import(module)
 
-    result = []
-    for var in make_iter(variable):
-        if var:
-            # try to pick a named variable
-            result.append(mod.__dict__.get(var, default))
-        else:
-            # random selection
-            mvars = [val for key, val in mod.__dict__.items()
-                            if not (key.startswith("_") or ismodule(val))]
-            result.append((mvars and random.choice(mvars)) or default)
+    if variable:
+        result = []
+        for var in make_iter(variable):
+            if var:
+                # try to pick a named variable
+                result.append(mod.__dict__.get(var, default))
+    else:
+        # get all
+        result = [val for key, val in mod.__dict__.items()
+                         if not (key.startswith("_") or ismodule(val))]
+
     if len(result) == 1:
         return result[0]
     return result
@@ -833,9 +849,18 @@ def string_from_module(module, variable=None, default=None):
     if isinstance(val, basestring):
         return val
     elif is_iter(val):
-        return [(isinstance(v, basestring) and v or default) for v in val]
+        result = [v for v in val if isinstance(v, basestring)]
+        return result if result else default
     return default
 
+def random_string_from_module(module):
+    """
+    Returns a random global string from a module
+    """
+    string = string_from_module(module)
+    if is_iter(string):
+        string = random.choice(string)
+    return string
 
 def init_new_player(player):
     """
@@ -1005,3 +1030,97 @@ def get_evennia_pids():
     if server_pid and portal_pid:
         return int(server_pid), int(portal_pid)
     return None, None
+
+from gc import get_referents
+from sys import getsizeof
+def deepsize(obj, max_depth=4):
+    """
+    Get not only size of the given object, but also the
+    size of objects referenced by the object, down to
+    max_depth distance from the object.
+
+    Note that this measure is necessarily approximate
+    since some memory is shared between objects. The
+    max_depth of 4 is roughly tested to give reasonable
+    size information about database models and their handlers.
+
+    Returns size in Bytes
+    """
+    def _recurse(o, dct, depth):
+        if max_depth >= 0 and depth > max_depth:
+            return
+        for ref in get_referents(o):
+            idr = id(ref)
+            if not idr in dct:
+                dct[idr] = (ref, getsizeof(ref, default=0))
+                _recurse(ref, dct, depth+1)
+    sizedict = {}
+    _recurse(obj, sizedict, 0)
+    #count = len(sizedict) + 1
+    size = getsizeof(obj) + sum([p[1] for p in sizedict.values()])
+    return size
+
+# lazy load handlers
+
+import weakref
+class LazyLoadHandler(object):
+    """
+    Load handlers only when they are actually accessed
+    """
+    def __init__(self, obj, name, cls, *args):
+        """
+        Set up a delayed load of a class. The 'name' must be named the
+        same as the variable to which the LazyLoadHandler is assigned.
+        """
+        _SA(self, "obj", weakref.ref(obj))
+        _SA(self, "name", name)
+        _SA(self, "cls", cls)
+        _SA(self, "args", args)
+
+    def _instantiate(self):
+        """
+        Initialize handler as cls(obj, *args)
+        """
+        obj = _GA(self, "obj")()
+        instance = _GA(self, "cls")(weakref.proxy(obj), *_GA(self, "args"))
+        _SA(obj, _GA(self, "name"), instance)
+        return instance
+
+    def __getattribute__(self, name):
+        """
+        Access means loading the handler
+        """
+        return getattr(_GA(self, "_instantiate")(), name)
+
+    def __setattr__(self, name, value):
+        """
+        Setting means loading the handler
+        """
+        setattr(_GA(self, "_instantiate")(), name, value)
+
+    def __delattr__(self, name):
+        """
+        Deleting also triggers loading of handler
+        """
+        delattr(_GA(self, "_instantiate")(), name)
+
+    def __repr__(self):
+        return repr(_GA(self, "_instantiate")())
+    def __str__(self):
+        return str(_GA(self, "_instantiate")())
+    def __unicode__(self):
+        return str(_GA(self, "_instantiate")())
+
+class NonWeakLazyLoadHandler(LazyLoadHandler):
+    """
+    Variation of LazyLoadHandler that does not
+    create a weak reference when initiating.
+    """
+    def _instantiate(self):
+        """
+        Initialize handler as cls(obj, *args)
+        """
+        obj = _GA(self, "obj")()
+        instance = _GA(self, "cls")(obj, *_GA(self, "args"))
+        _SA(obj, _GA(self, "name"), instance)
+        return instance

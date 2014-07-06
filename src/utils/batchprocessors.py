@@ -171,12 +171,16 @@ import traceback
 import sys
 #from traceback import format_exc
 from django.conf import settings
-from src.utils import logger
 from src.utils import utils
 #from game import settings as settings_module
 
 ENCODINGS = settings.ENCODINGS
 CODE_INFO_HEADER = re.compile(r"\(.*?\)")
+
+RE_INSERT = re.compile(r"^\#INSERT (.*?)", re.MULTILINE)
+RE_CLEANBLOCK = re.compile(r"^\#.*?$|^\s*$", re.MULTILINE)
+RE_CMD_SPLIT = re.compile(r"^\#.*?$", re.MULTILINE)
+RE_CODE_SPLIT = re.compile(r"(^\#CODE.*?$|^\#HEADER)$", re.MULTILINE)
 
 
 #------------------------------------------------------------
@@ -186,11 +190,12 @@ CODE_INFO_HEADER = re.compile(r"\(.*?\)")
 def read_batchfile(pythonpath, file_ending='.py'):
     """
     This reads the contents of a batch-file.
-    Filename is considered to be the name of the batch file
+    Filename is considered to be a python path to a batch file
     relative the directory specified in settings.py.
 
     file_ending specify which batchfile ending should be
-    assumed (.ev or .py).
+    assumed (.ev or .py). The ending should not be included
+    in the python path.
     """
 
     # open the file
@@ -201,52 +206,31 @@ def read_batchfile(pythonpath, file_ending='.py'):
             abspaths.append(utils.pypath_to_realpath("%s.%s" % (basepath, pythonpath), file_ending))
     else:
         abspaths = [utils.pypath_to_realpath(pythonpath, file_ending)]
-    fobj, lines, err = None, [], None
-    for file_encoding in ENCODINGS:
-        # try different encodings, in order
-        load_errors = []
-        for abspath in abspaths:
-            # try different paths, until we get a match
+    text, fobj  = None, None
+    fileerr, decoderr = [], []
+    for abspath in abspaths:
+        # try different paths, until we get a match
+        # we read the file directly into unicode.
+        for file_encoding in ENCODINGS:
+            # try different encodings, in order
             try:
-                # we read the file directly into unicode.
                 fobj = codecs.open(abspath, 'r', encoding=file_encoding)
-            except IOError:
-                load_errors.append("Could not open batchfile '%s'." % abspath)
+                text = fobj.read()
+            except IOError, e:
+                # could not find the file
+                fileerr.append(str(e))
+                break
+            except (ValueError, UnicodeDecodeError), e:
+                # this means an encoding error; try another encoding
+                decoderr.append(str(e))
                 continue
             break
-        if not fobj:
-            continue
+    if not fobj:
+        raise IOError("\n".join(fileerr))
+    if not text:
+        raise UnicodeDecodeError("\n".join(decoderr))
 
-        load_errors = []
-        err = None
-        # We have successfully found and opened the file. Now actually
-        # try to decode it using the given protocol.
-        try:
-            lines = fobj.readlines()
-        except UnicodeDecodeError:
-            # give the line of failure
-            fobj.seek(0)
-            try:
-                lnum = 0
-                for lnum, line in enumerate(fobj):
-                    pass
-            except UnicodeDecodeError, err:
-                # lnum starts from 0, so we add +1 line,
-                # besides the faulty line is never read
-                # so we add another 1 (thus +2) to get
-                # the actual line number seen in an editor.
-                err.linenum = lnum + 2
-            fobj.close()
-            # possibly try another encoding
-            continue
-        # if we get here, the encoding worked. Stop iteration.
-        break
-    if load_errors:
-        logger.log_errmsg("\n".join(load_errors))
-    if err:
-        return err
-    else:
-        return lines
+    return text
 
 
 #------------------------------------------------------------
@@ -280,68 +264,22 @@ class BatchCommandProcessor(object):
 
         """
 
-        #helper function
-        def identify_line(line):
-            """
-            Identifies the line type (comment, commanddef or empty)
-            """
-            try:
-                if line.strip().startswith("#INSERT"):
-                    return "insert"
-                elif line.strip()[0] == '#':
-                    return "comment"
-                else:
-                    return "commanddef"
-            except IndexError:
-                return "empty"
+        text = "".join(read_batchfile(pythonpath, file_ending='.ev'))
 
-        #read the indata, if possible.
-        lines = read_batchfile(pythonpath, file_ending='.ev')
+        def replace_insert(match):
+            "Map replace entries"
+            return "\#\n".join(self.parse_file(match.group()))
 
-        #line = utils.to_unicode(line)
-        if not lines:
-            return None
-
-        commands = []
-        curr_cmd = ""
-
-        #purge all superfluous whitespace and newlines from lines
-        reg1 = re.compile(r"\s+")
-        lines = [reg1.sub(" ", l) for l in lines]
-
-        #parse all command definitions into a list.
-        for line in lines:
-
-            typ = identify_line(line)
-
-            if typ == "commanddef":
-                curr_cmd += line
-            elif typ == "empty" and curr_cmd:
-                curr_cmd += "\r\n"
-            elif typ == "insert":
-                # note that we are not safeguarding for
-                # cyclic imports here!
-                if curr_cmd:
-                    commands.append(curr_cmd.strip())
-                curr_cmd = ""
-                filename = line.lstrip("#INSERT").strip()
-                insert_commands = self.parse_file(filename)
-                if insert_commands is None:
-                    insert_commands = ["{rINSERT ERROR: %s{n" % filename]
-                commands.extend(insert_commands)
-            else:  #comment
-                if curr_cmd:
-                    commands.append(curr_cmd.strip())
-                curr_cmd = ""
-        if curr_cmd:
-            commands.append(curr_cmd.strip())
-
-        #second round to clean up now merged line edges etc.
-        reg2 = re.compile(r"[ \t\f\v]+")
-        commands = [reg2.sub(" ", c) for c in commands]
-
+        # insert commands from inserted files
+        text = RE_INSERT.sub(replace_insert, text)
+        #text = re.sub(r"^\#INSERT (.*?)", replace_insert, text, flags=re.MULTILINE)
+        # get all commands
+        commands = RE_CMD_SPLIT.split(text)
+        #commands = re.split(r"^\#.*?$", text, flags=re.MULTILINE)
         #remove eventual newline at the end of commands
         commands = [c.strip('\r\n') for c in commands]
+        commands = [c for c in commands if c]
+
         return commands
 
 
@@ -368,7 +306,7 @@ class BatchCodeProcessor(object):
 
     """
 
-    def parse_file(self, pythonpath):
+    def parse_file(self, pythonpath, debug=False):
         """
         This parses the lines of a batchfile according to the following
         rules:
@@ -383,127 +321,76 @@ class BatchCodeProcessor(object):
 
         """
 
-        # helper function
-        def parse_line(line):
-            """
-            Identifies the line type:
-                block command, comment, empty or normal code.
-            """
-            parseline = line.strip()
+        text = "".join(read_batchfile(pythonpath, file_ending='.py'))
 
-            if parseline.startswith("#HEADER"):
-                return ("header", "", "")
-            if parseline.startswith("#INSERT"):
-                filename = line.lstrip("#INSERT").strip()
-                if filename:
-                    return ('insert', "", filename)
-                else:
-                    return ('comment', "", "{r#INSERT <None>{n")
-            elif parseline.startswith("#CODE"):
-                # parse code command
-                line = line.lstrip("#CODE").strip()
-                info = CODE_INFO_HEADER.findall(line) or ""
-                if info:
-                    info = info[0]
-                    line = line.replace(info, "")
-                objs = [o.strip() for o in line.split(",") if o.strip()]
-                return ("codeheader", info, objs)
-            elif parseline.startswith('#'):
-                return ('comment', "", "%s" % line)
-            else:
-                #normal line - return it with a line break.
-                return ('line', "", "%s" % line)
+        def clean_block(text):
+            text = RE_CLEANBLOCK.sub("", text)
+            #text = re.sub(r"^\#.*?$|^\s*$", "", text, flags=re.MULTILINE)
+            return "\n".join([line for line in text.split("\n") if line])
 
-        # read indata
+        def replace_insert(match):
+            "Map replace entries"
+            return "\#\n".join(self.parse_file(match.group()))
 
-        lines = read_batchfile(pythonpath, file_ending='.py')
-        if not lines:
-            return None
+        text = RE_INSERT.sub(replace_insert, text)
+        #text = re.sub(r"^\#INSERT (.*?)", replace_insert, text, flags=re.MULTILINE)
+        blocks = RE_CODE_SPLIT(text)
+        #blocks = re.split(r"(^\#CODE.*?$|^\#HEADER)$", text, flags=re.MULTILINE)
+        headers = []
+        codes = [] # list of tuples (code, info, objtuple)
+        if blocks:
+            if blocks[0]:
+                # the first block is either empty or an unmarked code block
+                code = clean_block(blocks.pop(0))
+                if code:
+                    codes.append((code, ""))
+            iblock = 0
+            for block in blocks[::2]:
+                # loop over every second component; these are the #CODE/#HEADERs
+                if block.startswith("#HEADER"):
+                    headers.append(clean_block(blocks[iblock + 1]))
+                elif block.startswith("#CODE"):
+                    match = re.search(r"\(.*?\)", block)
+                    info = match.group() if match else ""
+                    objs = []
+                    if debug:
+                        # insert auto-delete lines into code
+                        objs = block[match.end():].split(",")
+                        objs = ["# added by Evennia's debug mode\n%s.delete()" % obj.strip() for obj in objs if obj]
+                    # build the code block
+                    code = "\n".join([clean_block(blocks[iblock + 1])] + objs)
+                    if code:
+                        codes.append((code, info))
+                iblock += 2
 
-        # parse file into blocks
-
-        header = ""
-        codes = []
-
-        in_header = False
-        in_code = False
-
-        for line in lines:
-            # parse line
-            mode, info, line = parse_line(line)
-            # try:
-            #     print "::", in_header, in_code, mode, line.strip()
-            # except:
-            #     print "::", in_header, in_code, mode, line
-            if mode == 'insert':
-                # recursive load of inserted code files - note that we
-                # are not checking for cyclic imports!
-                in_header = False
-                in_code = False
-                inserted_codes = self.parse_file(line) or [{'objs': "", 'info': line, 'code': ""}]
-                for codedict in inserted_codes:
-                    codedict["inserted"] = True
-                codes.extend(inserted_codes)
-            elif mode == 'header':
-                in_header = True
-                in_code = False
-            elif mode == 'codeheader':
-                in_header = False
-                in_code = True
-                # the line is a list of object variable names
-                # (or an empty list) at this point.
-                codedict = {'objs': line, 'info': info, 'code': ""}
-                codes.append(codedict)
-            elif mode == 'comment' and in_header:
-                continue
-            else:
-                # another type of line (empty, comment or code)
-                if line and in_header:
-                    header += line
-                elif line and in_code:
-                    codes[-1]['code'] += line
-                else:
-                    # not in a block (e.g. first in file). Ignore.
-                    continue
-
-        # last, we merge the headers with all codes.
-        for codedict in codes:
-            #print "codedict:", codedict
-            if codedict and "inserted" in codedict:
-                # we don't need to merge code+header in this case
-                # since that was already added in the recursion. We
-                # just check for errors.
-                if not codedict['code']:
-                    codedict['code'] = "{r#INSERT ERROR: %s{n" % codedict['info']
-            else:
-                objs = ", ".join(codedict["objs"])
-                if objs:
-                    objs = "[%s]" % objs
-                codedict["code"] = "#CODE %s %s \n%s\n\n%s" % (codedict['info'],
-                                                               objs,
-                                                               header.strip(),
-                                                               codedict["code"].strip())
+        # join the headers together to one header
+        headers = "\n".join(headers)
+        if codes:
+            # add the headers at the top of each non-empty block
+            codes = ["%s\n%s\n%s" % ("#CODE %s: " % tup[1], headers, tup[0]) for tup in codes if tup[0]]
+        else:
+            codes = ["#CODE: \n" + headers]
         return codes
 
-    def code_exec(self, codedict, extra_environ=None, debug=False):
+
+    def code_exec(self, code, extra_environ=None, debug=False):
         """
         Execute a single code block, including imports and appending global vars
 
         extra_environ - dict with environment variables
         """
         # define the execution environment
-        environ = "settings_module.configure()"
         environdict = {"settings_module": settings}
+        environ = "settings_module.configure()"
         if extra_environ:
             for key, value in extra_environ.items():
                 environdict[key] = value
 
-        # merge all into one block
-        code = "# auto-added by Evennia\ntry:%s\nexcept RuntimeError:pass\nfinally:del settings_module\n%s" % (environ, codedict['code'])
-        if debug:
-            # try to delete marked objects
-            for obj in codedict['objs']:
-                code += "\ntry:    %s.delete()\nexcept:    pass" % obj
+        # initializing the django settings at the top of code
+        code = "# auto-added by Evennia\n" \
+               "try: %s\n" \
+               "except RuntimeError: pass\n" \
+               "finally: del settings_module\n%s" % (environ, code)
 
         # execute the block
         try:
@@ -524,18 +411,6 @@ class BatchCodeProcessor(object):
                     err += "\n%02i: %s" % (iline + 1, line)
 
             err += "\n".join(traceback.format_exception(etype, value, tb))
-            #errlist = format_exc().split('\n')
-            #if len(errlist) > 4:
-            #    errlist = errlist[4:]
-            #err = "\n".join(" %s" % line for line in errlist if line)
-
-            if debug:
-                # try to delete objects again.
-                try:
-                    for obj in codedict['objs']:
-                        eval("%s.delete()" % obj, environdict)
-                except Exception:
-                    pass
             return err
         return None
 

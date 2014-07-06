@@ -28,7 +28,7 @@ from src.commands import cmdhandler
 from src.scripts.scripthandler import ScriptHandler
 from src.utils import logger
 from src.utils.utils import (make_iter, to_str, to_unicode,
-                             variable_from_module, dbref)
+                             variable_from_module, dbref, LazyLoadHandler)
 
 from django.utils.translation import ugettext as _
 
@@ -41,10 +41,6 @@ _SESSIONS = None
 _GA = object.__getattribute__
 _SA = object.__setattr__
 _DA = object.__delattr__
-
-_ME = _("me")
-_SELF = _("self")
-_HERE = _("here")
 
 
 #------------------------------------------------------------
@@ -106,7 +102,7 @@ class ObjectDB(TypedObject):
     # will automatically save and cache the data more efficiently.
 
     # If this is a character object, the player is connected here.
-    db_player = models.ForeignKey("players.PlayerDB", blank=True, null=True, verbose_name='player',
+    db_player = models.ForeignKey("players.PlayerDB", blank=True, null=True, verbose_name='player', on_delete=models.SET_NULL,
                                   help_text='a Player connected to this object, if any.')
     # the session id associated with this player, if any
     db_sessid = models.IntegerField(null=True, verbose_name="session id",
@@ -114,13 +110,13 @@ class ObjectDB(TypedObject):
     # The location in the game world. Since this one is likely
     # to change often, we set this with the 'location' property
     # to transparently handle Typeclassing.
-    db_location = models.ForeignKey('self', related_name="locations_set", db_index=True,
+    db_location = models.ForeignKey('self', related_name="locations_set", db_index=True, on_delete=models.SET_NULL,
                                      blank=True, null=True, verbose_name='game location')
     # a safety location, this usually don't change much.
-    db_home = models.ForeignKey('self', related_name="homes_set",
+    db_home = models.ForeignKey('self', related_name="homes_set", on_delete=models.SET_NULL,
                                  blank=True, null=True, verbose_name='home location')
     # destination of this object - primarily used by exits.
-    db_destination = models.ForeignKey('self', related_name="destinations_set", db_index=True,
+    db_destination = models.ForeignKey('self', related_name="destinations_set", db_index=True, on_delete=models.SET_NULL,
                                        blank=True, null=True, verbose_name='destination',
                                        help_text='a destination, used only by exit objects.')
     # database storage of persistant cmdsets.
@@ -139,19 +135,18 @@ class ObjectDB(TypedObject):
         "Parent must be initialized first."
         TypedObject.__init__(self, *args, **kwargs)
         # handlers
-        _SA(self, "cmdset", CmdSetHandler(self))
-        _GA(self, "cmdset").update(init_mode=True)
-        _SA(self, "scripts", ScriptHandler(self))
-        _SA(self, "attributes", AttributeHandler(self))
-        _SA(self, "nicks", NickHandler(self))
-        _SA(self, "tags", TagHandler(self))
-        _SA(self, "aliases", AliasHandler(self))
+        _SA(self, "cmdset", LazyLoadHandler(self, "cmdset", CmdSetHandler, True))
+        _SA(self, "scripts", LazyLoadHandler(self, "scripts", ScriptHandler))
+        _SA(self, "nicks", LazyLoadHandler(self, "nicks", NickHandler))
+        #_SA(self, "attributes", LazyLoadHandler(self, "attributes", AttributeHandler))
+        #_SA(self, "tags", LazyLoadHandler(self, "tags", TagHandler))
+        #_SA(self, "aliases", LazyLoadHandler(self, "aliases", AliasHandler))
         # make sure to sync the contents cache when initializing
         #_GA(self, "contents_update")()
 
-    def _at_db_player_presave(self):
+    def _at_db_player_postsave(self):
         """
-        This hook is called automatically just before the player field is saved.
+        This hook is called automatically after the player field is saved.
         """
         # we need to re-cache this for superusers to bypass.
         self.locks.cache_lock_bypass(self)
@@ -226,7 +221,7 @@ class ObjectDB(TypedObject):
             raise Exception(errmsg)
 
     def __location_del(self):
-        "Cleably delete the location reference"
+        "Cleanly delete the location reference"
         _SA(_GA(self, "dbobj"), "db_location", None)
         _GA(_GA(self, "dbobj"), "save")(upate_fields=["db_location"])
     location = property(__location_get, __location_set, __location_del)
@@ -367,12 +362,6 @@ class ObjectDB(TypedObject):
         """
         is_string = isinstance(searchdata, basestring)
 
-        # handle some common self-references:
-        if searchdata == _HERE:
-            return self.location
-        if searchdata in (_ME, _SELF):
-            return self.typeclass
-
         if use_nicks:
             # do nick-replacement on search
             searchdata = self.nicks.nickreplace(searchdata, categories=("object", "player"), include_player=True)
@@ -412,14 +401,32 @@ class ObjectDB(TypedObject):
 
     def search_player(self, searchdata, quiet=False):
         """
-        Simple wrapper of the player search also handling me, self
+        Simple shortcut wrapper to search for players, not characters.
+
+        searchdata - search criterion - the key or dbref of the player
+                     to search for. If this is "here" or "me", search
+                     for the player connected to this object.
+        quiet - return the results as a list rather than echo eventual
+                standard error messages.
+
+        Returns:
+            quiet=False (default):
+                no match or multimatch:
+                    auto-echoes errors to self.msg, then returns None
+                    (results are handled by settings.SEARCH_AT_RESULT
+                                 and settings.SEARCH_AT_MULTIMATCH_INPUT)
+                match:
+                    a unique player match
+            quiet=True:
+                no match or multimatch:
+                    returns None or list of multi-matches
+                match:
+                    a unique object match
         """
-        if searchdata in (_ME, _SELF) and _GA(self, "db_player"):
-            return _GA(self, "db_player")
         results = PlayerDB.objects.player_search(searchdata)
         if quiet:
             return results
-        return _AT_SEARCH_RESULT(self, searchdata, results, True)
+        return _AT_SEARCH_RESULT(self, searchdata, results, global_search=True)
 
     #
     # Execution/action methods
@@ -465,6 +472,9 @@ class ObjectDB(TypedObject):
         sessid (int): sessid to relay to, if any.
                       If set to 0 (default), use either from_obj.sessid (if set) or self.sessid automatically
                       If None, echo to all connected sessions
+
+        When this message is called, from_obj.at_msg_send and self.at_msg_receive are called.
+
         """
         global _SESSIONS
         if not _SESSIONS:
@@ -482,9 +492,15 @@ class ObjectDB(TypedObject):
         if from_obj:
             # call hook
             try:
-                _GA(from_obj, "at_msg_send")(text=text, to_obj=self, **kwargs)
+                _GA(from_obj, "at_msg_send")(text=text, to_obj=_GA(self, "typeclass"), **kwargs)
             except Exception:
-                pass
+                logger.log_trace()
+        try:
+            if not _GA(_GA(self, "typeclass"), "at_msg_receive")(text=text, **kwargs):
+                # if at_msg_receive returns false, we abort message to this object
+                return
+        except Exception:
+            logger.log_trace()
 
         session = _SESSIONS.session_from_sessid(sessid if sessid else _GA(self, "sessid"))
         if session:
@@ -558,7 +574,7 @@ class ObjectDB(TypedObject):
 
         # Before the move, call eventual pre-commands.
         try:
-            if not self.at_before_move(destination):
+            if not self.at_before_move(_GA(destination, "typeclass")):
                 return
         except Exception:
             logerr(errtxt % "at_before_move()")
@@ -574,12 +590,12 @@ class ObjectDB(TypedObject):
             if _GA(self, "home"):
                 source_location = _GA(self, "home")
             else:
-                default_home = ObjectDB.objects.get_id(settings.CHARACTER_DEFAULT_HOME)
+                default_home = ObjectDB.objects.get_id(settings.DEFAULT_HOME)
                 source_location = default_home
 
         # Call hook on source location
         try:
-            source_location.at_object_leave(self, destination)
+            source_location.at_object_leave(_GA(self, "typeclass"), _GA(destination, "typeclass"))
         except Exception:
             logerr(errtxt % "at_object_leave()")
             #emit_to_obj.msg(errtxt % "at_object_leave()")
@@ -589,7 +605,7 @@ class ObjectDB(TypedObject):
         if not quiet:
             #tell the old room we are leaving
             try:
-                self.announce_move_from(destination)
+                self.announce_move_from(_GA(destination, "typeclass"))
             except Exception:
                 logerr(errtxt % "at_announce_move()")
                 #emit_to_obj.msg(errtxt % "at_announce_move()" )
@@ -608,7 +624,7 @@ class ObjectDB(TypedObject):
         if not quiet:
             # Tell the new room we are there.
             try:
-                self.announce_move_to(source_location)
+                self.announce_move_to(_GA(source_location, "typeclass"))
             except Exception:
                 logerr(errtxt % "announce_move_to()")
                 #emit_to_obj.msg(errtxt % "announce_move_to()")
@@ -618,7 +634,7 @@ class ObjectDB(TypedObject):
         # Perform eventual extra commands on the receiving location
         # (the object has already arrived at this point)
         try:
-            destination.at_object_receive(self, source_location)
+            destination.at_object_receive(_GA(self, "typeclass"), _GA(source_location, "typeclass"))
         except Exception:
             logerr(errtxt % "at_object_receive()")
             #emit_to_obj.msg(errtxt % "at_object_receive()")
@@ -628,7 +644,7 @@ class ObjectDB(TypedObject):
         # Execute eventual extra commands on this object after moving it
         # (usually calling 'look')
         try:
-            self.at_after_move(source_location)
+            self.at_after_move(_GA(source_location, "typeclass"))
         except Exception:
             logerr(errtxt % "at_after_move")
             #emit_to_obj.msg(errtxt % "at_after_move()")
@@ -657,7 +673,7 @@ class ObjectDB(TypedObject):
         """
         # Gather up everything that thinks this is its location.
         objs = ObjectDB.objects.filter(db_location=self)
-        default_home_id = int(settings.CHARACTER_DEFAULT_HOME.lstrip("#"))
+        default_home_id = int(settings.DEFAULT_HOME.lstrip("#"))
         try:
             default_home = ObjectDB.objects.get(id=default_home_id)
             if default_home.dbid == _GA(self, "dbid"):
@@ -673,9 +689,10 @@ class ObjectDB(TypedObject):
             # Obviously, we can't send it back to here.
             if not home or (home and home.dbid == _GA(self, "dbid")):
                 obj.home = default_home
+                home = default_home
 
             # If for some reason it's still None...
-            if not obj.home:
+            if not home:
                 string = "Missing default home, '%s(#%d)' "
                 string += "now has a null location."
                 obj.location = None
@@ -771,10 +788,10 @@ class ObjectDB(TypedObject):
         _GA(self, "clear_exits")()
         # Clear out any non-exit objects located within the object
         _GA(self, "clear_contents")()
-        #old_loc = _GA(self, "location")
+        _GA(self, "attributes").clear()
+        _GA(self, "nicks").clear()
+        _GA(self, "aliases").clear()
+
         # Perform the deletion of the object
         super(ObjectDB, self).delete()
-        # clear object's old  location's content cache of this object
-        #if old_loc:
-        #    _GA(old_loc.dbobj, "contents_update")()
         return True

@@ -96,9 +96,10 @@ class Object(TypeClass):
 
         * Helper methods (see src.objects.objects.py for full headers)
 
-         search(ostring, global_search=False, global_dbref=False,
+         search(ostring, global_search=False, use_nicks=True,
+                typeclass=None,
                 attribute_name=None, use_nicks=True, location=None,
-                ignore_errors=False, player=False)
+                quiet=False, exact=False)
          execute_cmd(raw_string)
          msg(message, **kwargs)
          msg_contents(message, exclude=None, from_obj=None, **kwargs)
@@ -190,7 +191,7 @@ class Object(TypeClass):
 
     ## methods inherited from the database object (overload them here)
 
-    def search(self, ostring,
+    def search(self, searchdata,
                global_search=False,
                use_nicks=True,
                typeclass=None,
@@ -208,13 +209,14 @@ class Object(TypeClass):
 
         Inputs:
 
-        ostring (str): Primary search criterion. Will be matched against
+        searchdata (str): Primary search criterion. Will be matched against
                       object.key (with object.aliases second)
                        unless the keyword attribute_name specifies otherwise.
                        Special strings:
                         #<num> - search by unique dbref. This is always a
                                  global search.
                         me,self - self-reference to this object
+                        here - current location
                         <num>-<string> - can be used to differentiate between
                                          multiple same-named matches
         global_search (bool): Search all objects globally. This is overruled
@@ -252,7 +254,14 @@ class Object(TypeClass):
                     a unique object match
 
         """
-        return self.dbobj.search(ostring,
+        if isinstance(searchdata, basestring):
+            # searchdata is a string; wrap some common self-references
+            if searchdata.lower() in ("here", ):
+                return self.location
+            if searchdata.lower() in ("me", "self",):
+                return self
+
+        return self.dbobj.search(searchdata,
                global_search=global_search,
                use_nicks=use_nicks,
                typeclass=typeclass,
@@ -261,11 +270,42 @@ class Object(TypeClass):
                quiet=quiet,
                exact=exact)
 
+    def search_player(self, searchdata, quiet=False):
+        """
+        Simple shortcut wrapper to search for players, not characters.
+
+        searchdata - search criterion - the key or dbref of the player
+                     to search for. If this is "here" or "me", search
+                     for the player connected to this object.
+        quiet - return the results as a list rather than echo eventual
+                standard error messages.
+
+        Returns:
+            quiet=False (default):
+                no match or multimatch:
+                    auto-echoes errors to self.msg, then returns None
+                    (results are handled by settings.SEARCH_AT_RESULT
+                                 and settings.SEARCH_AT_MULTIMATCH_INPUT)
+                match:
+                    a unique player match
+            quiet=True:
+                no match or multimatch:
+                    returns None or list of multi-matches
+                match:
+                    a unique object match
+        """
+        if isinstance(searchdata, basestring):
+            # searchdata is a string; wrap some common self-references
+            if searchdata.lower() in ("me", "self",):
+                return self.player
+        return self.dbobj.search_player(searchdata, quiet=quiet)
+
     def execute_cmd(self, raw_string, sessid=None):
         """
         Do something as this object. This command transparently
-        lets its typeclass execute the command. Evennia also calls
-        this method whenever the player sends a command on the command line.
+        lets its typeclass execute the command. This method is
+        never called normally, it is only called explicitly in
+        code.
 
         Argument:
         raw_string (string) - raw command input
@@ -486,7 +526,6 @@ class Object(TypeClass):
         # commands may set this (create an item and you should be its
         # controller, for example)
 
-        dbref = self.dbobj.dbref
         self.locks.add(";".join([
             "control:perm(Immortals)",  # edit locks/permissions, delete
             "examine:perm(Builders)",   # examine properties
@@ -496,8 +535,7 @@ class Object(TypeClass):
             "get:all()",                # pick up object
             "call:true()",              # allow to call commands on this object
             "tell:perm(Wizards)",        # allow emits to this object
-             # restricts puppeting of this object
-            "puppet:pid(%s) or perm(Immortals) or pperm(Immortals)" % dbref]))
+            "puppet:pperm(Immortals)"])) # lock down puppeting only to staff by default
 
     def basetype_posthook_setup(self):
         """
@@ -1048,7 +1086,7 @@ class Exit(Object):
         if self.ndb.exit_reset or not self.cmdset.has_cmdset("_exitset", must_be_default=True):
             # we are resetting, or no exit-cmdset was set. Create one dynamically.
             self.cmdset.add_default(self.create_exit_cmdset(self.dbobj), permanent=False)
-            self.ndb.exit_reset = False
+            del self.ndb.exit_reset
 
     # this and other hooks are what usually can be modified safely.
 

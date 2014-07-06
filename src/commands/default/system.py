@@ -13,12 +13,13 @@ import twisted
 from time import time as timemeasure
 
 from django.conf import settings
-from src.server.caches import get_cache_sizes
+#from src.server.caches import get_cache_sizes
 from src.server.sessionhandler import SESSIONS
 from src.scripts.models import ScriptDB
 from src.objects.models import ObjectDB
 from src.players.models import PlayerDB
 from src.utils import logger, utils, gametime, create, is_pypy, prettytable
+from src.utils.evtable import EvTable
 from src.utils.utils import crop
 from src.commands.default.muxcommand import MuxCommand
 
@@ -80,7 +81,7 @@ class CmdReset(MuxCommand):
         """
         Reload the system.
         """
-        SESSIONS.announce_all(" Server restarting ...")
+        SESSIONS.announce_all(" Server resetting/restarting ...")
         SESSIONS.server.shutdown(mode='reset')
 
 
@@ -199,11 +200,10 @@ class CmdPy(MuxCommand):
                 errlist = errlist[4:]
             ret = "\n".join("{n<<< %s" % line for line in errlist if line)
 
-        if ret is not None:
-            try:
-                self.msg(ret, sessid=self.sessid)
-            except TypeError:
-                self.msg(ret)
+        try:
+            self.msg(ret, sessid=self.sessid)
+        except TypeError:
+            self.msg(ret)
 
 
 # helper function. Kept outside so it can be imported and run
@@ -214,17 +214,9 @@ def format_script_list(scripts):
     if not scripts:
         return "<No scripts>"
 
-    table = prettytable.PrettyTable(["{wdbref",
-                                     "{wobj",
-                                     "{wkey",
-                                     "{wintval",
-                                     "{wnext",
-                                     "{wrept",
-                                     "{wdb",
-                                     "{wtypeclass",
-                                     "{wdesc"],
-                                     align='r')
-    table.align = 'r'
+    table = EvTable("{wdbref{n", "{wobj{n", "{wkey{n", "{wintval{n", "{wnext{n",
+                    "{wrept{n", "{wdb", "{wtypeclass{n", "{wdesc{n",
+                    align='r', border="tablecols")
     for script in scripts:
         nextrep = script.time_until_next_repeat()
         if nextrep is None:
@@ -238,15 +230,15 @@ def format_script_list(scripts):
         else:
             rept = "-/-"
 
-        table.add_row([script.id,
-                       script.obj.key if (hasattr(script, 'obj') and script.obj) else "<Global>",
-                       script.key,
-                       script.interval if script.interval > 0 else "--",
-                       nextrep,
-                       rept,
-                       "*" if script.persistent else "-",
-                       script.typeclass_path.rsplit('.', 1)[-1],
-                       crop(script.desc, width=20)])
+        table.add_row(script.id,
+                      script.obj.key if (hasattr(script, 'obj') and script.obj) else "<Global>",
+                      script.key,
+                      script.interval if script.interval > 0 else "--",
+                      nextrep,
+                      rept,
+                      "*" if script.persistent else "-",
+                      script.typeclass_path.rsplit('.', 1)[-1],
+                      crop(script.desc, width=20))
     return "%s" % table
 
 
@@ -379,31 +371,30 @@ class CmdObjects(MuxCommand):
         nexits = ObjectDB.objects.filter(db_location__isnull=False, db_destination__isnull=False).count()
         nother = nobjs - nchars - nrooms - nexits
 
+        nobjs = nobjs or 1 # fix zero-div error with empty database
+
         # total object sum table
-        totaltable = prettytable.PrettyTable(["{wtype", "{wcomment", "{wcount", "{w%%"])
+        totaltable = EvTable("{wtype{n", "{wcomment{n", "{wcount{n", "{w%%{n", border="table", align="l")
         totaltable.align = 'l'
-        totaltable.add_row(["Characters", "(BASE_CHARACTER_TYPECLASS)", nchars, "%.2f" % ((float(nchars) / nobjs) * 100)])
-        totaltable.add_row(["Rooms", "(location=None)", nrooms, "%.2f" % ((float(nrooms) / nobjs) * 100)])
-        totaltable.add_row(["Exits", "(destination!=None)", nexits, "%.2f" % ((float(nexits) / nobjs) * 100)])
-        totaltable.add_row(["Other", "", nother, "%.2f" % ((float(nother) / nobjs) * 100)])
+        totaltable.add_row("Characters", "(BASE_CHARACTER_TYPECLASS)", nchars, "%.2f" % ((float(nchars) / nobjs) * 100))
+        totaltable.add_row("Rooms", "(location=None)", nrooms, "%.2f" % ((float(nrooms) / nobjs) * 100))
+        totaltable.add_row("Exits", "(destination!=None)", nexits, "%.2f" % ((float(nexits) / nobjs) * 100))
+        totaltable.add_row("Other", "", nother, "%.2f" % ((float(nother) / nobjs) * 100))
 
         # typeclass table
-        typetable = prettytable.PrettyTable(["{wtypeclass", "{wcount", "{w%%"])
+        typetable = EvTable("{wtypeclass{n", "{wcount{n", "{w%%{n", border="table", align="l")
         typetable.align = 'l'
         dbtotals = ObjectDB.objects.object_totals()
         for path, count in dbtotals.items():
-            typetable.add_row([path, count, "%.2f" % ((float(count) / nobjs) * 100)])
+            typetable.add_row(path, count, "%.2f" % ((float(count) / nobjs) * 100))
 
         # last N table
         objs = ObjectDB.objects.all().order_by("db_date_created")[max(0, nobjs - nlim):]
-        latesttable = prettytable.PrettyTable(["{wcreated",
-                                               "{wdbref",
-                                               "{wname",
-                                               "{wtypeclass"])
+        latesttable = EvTable("{wcreated{n", "{wdbref{n", "{wname{n", "{wtypeclass{n", align="l", border="table")
         latesttable.align = 'l'
         for obj in objs:
-            latesttable.add_row([utils.datetime_format(obj.date_created),
-                                 obj.dbref, obj.key, obj.typeclass.path])
+            latesttable.add_row(utils.datetime_format(obj.date_created),
+                                obj.dbref, obj.key, obj.typeclass.path)
 
         string = "\n{wObject subtype totals (out of %i Objects):{n\n%s" % (nobjs, totaltable)
         string += "\n{wObject typeclass distribution:{n\n%s" % typetable
@@ -439,16 +430,14 @@ class CmdPlayers(MuxCommand):
 
         # typeclass table
         dbtotals = PlayerDB.objects.object_totals()
-        typetable = prettytable.PrettyTable(["{wtypeclass", "{wcount", "{w%%"])
-        typetable.align = 'l'
+        typetable = EvTable("{wtypeclass{n", "{wcount{n", "{w%%{n", border="cells", align="l")
         for path, count in dbtotals.items():
-            typetable.add_row([path, count, "%.2f" % ((float(count) / nplayers) * 100)])
+            typetable.add_row(path, count, "%.2f" % ((float(count) / nplayers) * 100))
         # last N table
         plyrs = PlayerDB.objects.all().order_by("db_date_created")[max(0, nplayers - nlim):]
-        latesttable = prettytable.PrettyTable(["{wcreated", "{wdbref", "{wname", "{wtypeclass"])
-        latesttable.align = 'l'
+        latesttable = EvTable("{wcreated{n", "{wdbref{n", "{wname{n", "{wtypeclass{n", border="cells", align="l")
         for ply in plyrs:
-            latesttable.add_row([utils.datetime_format(ply.date_created), ply.dbref, ply.key, ply.typeclass.path])
+            latesttable.add_row(utils.datetime_format(ply.date_created), ply.dbref, ply.key, ply.typeclass.path)
 
         string = "\n{wPlayer typeclass distribution:{n\n%s" % typetable
         string += "\n{wLast %s Players created:{n\n%s" % (min(nplayers, nlim), latesttable)
@@ -631,10 +620,15 @@ class CmdServerLoad(MuxCommand):
     show server load and memory statistics
 
     Usage:
-       @serverload
+       @server[/mem]
+
+    Switch:
+        mem - return only a string of the current memory usage
+        flushmem - flush the idmapper cache
 
     This command shows server load statistics and dynamic memory
-    usage.
+    usage. It also allows to flush the cache of accessed database
+    objects.
 
     Some Important statistics in the table:
 
@@ -649,9 +643,12 @@ class CmdServerLoad(MuxCommand):
     loaded by use of the idmapper functionality. This allows Evennia
     to maintain the same instances of an entity and allowing
     non-persistent storage schemes. The total amount of cached objects
-    are displayed plus a breakdown of database object types. Finally,
-    {wAttributes{n are cached on-demand for speed. The total amount of
-    memory used for this type of cache is also displayed.
+    are displayed plus a breakdown of database object types.
+
+    The {wflushmem{n switch allows to flush the object cache. Please
+    note that due to how Python's memory management works, releasing
+    caches may not show you a lower Residual/Virtual memory footprint,
+    the released memory will instead be re-used by the program.
 
     """
     key = "@server"
@@ -681,10 +678,18 @@ class CmdServerLoad(MuxCommand):
         loadavg = os.getloadavg()
         psize = _resource.getpagesize()
         pid = os.getpid()
-        rmem = float(os.popen('ps -p %d -o %s | tail -1' % (pid, "rss")).read()) / 1024.0  # resident memory
-        vmem = float(os.popen('ps -p %d -o %s | tail -1' % (pid, "vsz")).read()) / 1024.0  # virtual memory
+        rmem = float(os.popen('ps -p %d -o %s | tail -1' % (pid, "rss")).read()) / 1000.0  # resident memory
+        vmem = float(os.popen('ps -p %d -o %s | tail -1' % (pid, "vsz")).read()) / 1000.0  # virtual memory
         pmem = float(os.popen('ps -p %d -o %s | tail -1' % (pid, "%mem")).read())  # percent of resident memory to total
         rusage = resource.getrusage(resource.RUSAGE_SELF)
+
+        if "mem" in self.switches:
+            caller.msg("Memory usage: RMEM: {w%g{n MB (%g%%), VMEM (res+swap+cache): {w%g{n MB." % (rmem, pmem, vmem))
+            return
+
+        if "flushmem" in self.switches:
+            caller.msg("Flushed object idmapper cache. Python garbage collector recovered memory from %i objects." %  _idmapper.flush_cache())
+            return
 
         # load table
         loadtable = prettytable.PrettyTable(["property", "statistic"])
@@ -708,28 +713,20 @@ class CmdServerLoad(MuxCommand):
             # because it lacks sys.getsizeof
 
             # object cache size
-            cachedict = _idmapper.cache_size()
-            totcache = cachedict["_total"]
-            sorted_cache = sorted([(key, tup[0], tup[1]) for key, tup in cachedict.items() if key !="_total" and tup[0] > 0],
-                                    key=lambda tup: tup[2], reverse=True)
+            total_num, cachedict = _idmapper.cache_size()
+            sorted_cache = sorted([(key, num) for key, num in cachedict.items() if num > 0],
+                                    key=lambda tup: tup[1], reverse=True)
             memtable = prettytable.PrettyTable(["entity name",
                                                 "number",
-                                                "cache (MB)",
                                                 "idmapper %%"])
             memtable.align = 'l'
             for tup in sorted_cache:
                 memtable.add_row([tup[0],
                                  "%i" % tup[1],
-                                 "%5.2f" % tup[2],
-                                 "%.2f" % (float(tup[2] / totcache[1]) * 100)])
+                                 "%.2f" % (float(tup[1]) / total_num * 100)])
 
             # get sizes of other caches
-            attr_cache_info, prop_cache_info = get_cache_sizes()
-            string += "\n{w Entity idmapper cache usage:{n %5.2f MB (%i items)\n%s" % (totcache[1], totcache[0], memtable)
-            string += "\n{w On-entity Attribute cache usage:{n %5.2f MB (%i attrs)" % (attr_cache_info[1], attr_cache_info[0])
-            string += "\n{w On-entity Property cache usage:{n %5.2f MB (%i props)" % (prop_cache_info[1], prop_cache_info[0])
-            base_mem = vmem - totcache[1] - attr_cache_info[1] - prop_cache_info[1]
-            string += "\n{w Base Server usage (virtmem-idmapper-attrcache-propcache):{n %5.2f MB" % base_mem
+            string += "\n{w Entity idmapper cache:{n %i items\n%s" % (total_num, memtable)
 
         caller.msg(string)
 

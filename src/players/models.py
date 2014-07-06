@@ -25,17 +25,18 @@ from src.players import manager
 from src.scripts.models import ScriptDB
 from src.typeclasses.models import (TypedObject, TagHandler, NickHandler,
                                     AliasHandler, AttributeHandler)
+from src.scripts.scripthandler import ScriptHandler
 from src.commands.cmdsethandler import CmdSetHandler
 from src.commands import cmdhandler
 from src.utils import utils, logger
-from src.utils.utils import to_str, make_iter
+from src.utils.utils import to_str, make_iter, LazyLoadHandler
 
 from django.utils.translation import ugettext as _
 
 __all__ = ("PlayerDB",)
 
-_ME = _("me")
-_SELF = _("self")
+#_ME = _("me")
+#_SELF = _("self")
 
 _SESSIONS = None
 _AT_SEARCH_RESULT = utils.variable_from_module(*settings.SEARCH_AT_RESULT.rsplit('.', 1))
@@ -78,6 +79,7 @@ class PlayerDB(TypedObject, AbstractUser):
       name - alias for user.username
       sessions - sessions connected to this player
       is_superuser - bool if this player is a superuser
+      is_bot - bool if this player is a bot and not a real player
 
     """
 
@@ -95,6 +97,8 @@ class PlayerDB(TypedObject, AbstractUser):
     # database storage of persistant cmdsets.
     db_cmdset_storage = models.CharField('cmdset', max_length=255, null=True,
         help_text="optional python path to a cmdset class. If creating a Character, this will default to settings.CMDSET_CHARACTER.")
+    # marks if this is a "virtual" bot player object
+    db_is_bot = models.BooleanField(default=False, verbose_name="is_bot", help_text="Used to identify irc/imc2/rss bots")
 
     # Database manager
     objects = manager.PlayerManager()
@@ -111,12 +115,11 @@ class PlayerDB(TypedObject, AbstractUser):
         "Parent must be initiated first"
         TypedObject.__init__(self, *args, **kwargs)
         # handlers
-        _SA(self, "cmdset", CmdSetHandler(self))
-        _GA(self, "cmdset").update(init_mode=True)
-        _SA(self, "attributes", AttributeHandler(self))
-        _SA(self, "nicks", NickHandler(self))
-        _SA(self, "tags", TagHandler(self))
-        _SA(self, "aliases", AliasHandler(self))
+        _SA(self, "cmdset", LazyLoadHandler(self, "cmdset", CmdSetHandler, True))
+        _SA(self, "scripts", LazyLoadHandler(self, "scripts", ScriptHandler))
+        _SA(self, "nicks", LazyLoadHandler(self, "nicks", NickHandler))
+        #_SA(self, "tags", LazyLoadHandler(self, "tags", TagHandler))
+        #_SA(self, "aliases", LazyLoadHandler(self, "aliases", AliasHandler))
 
     # alias to the objs property
     def __characters_get(self):
@@ -238,7 +241,7 @@ class PlayerDB(TypedObject, AbstractUser):
         if from_obj:
             # call hook
             try:
-                _GA(from_obj, "at_msg_send")(text=text, to_obj=self, **kwargs)
+                _GA(from_obj, "at_msg_send")(text=text, to_obj=_GA(self, "typeclass"), **kwargs)
             except Exception:
                 pass
         session = _MULTISESSION_MODE == 2 and sessid and _GA(self, "get_session")(sessid) or None
@@ -315,7 +318,7 @@ class PlayerDB(TypedObject, AbstractUser):
         # server kill or similar
 
         if normal_mode:
-            _GA(obj.typeclass, "at_pre_puppet")(self.typeclass, sessid=sessid)
+            _GA(obj.typeclass, "at_pre_puppet")(_GA(self, "typeclass"), sessid=sessid)
         # do the connection
         obj.sessid = sessid
         obj.player = self
@@ -347,7 +350,7 @@ class PlayerDB(TypedObject, AbstractUser):
         del obj.dbobj.player
         session.puppet = None
         session.puid = None
-        _GA(obj.typeclass, "at_post_unpuppet")(self.typeclass, sessid=sessid)
+        _GA(obj.typeclass, "at_post_unpuppet")(_GA(self, "typeclass"), sessid=sessid)
         return True
 
     def unpuppet_all(self):
@@ -397,6 +400,7 @@ class PlayerDB(TypedObject, AbstractUser):
             return puppets and puppets[0] or None
         return puppets
     character = property(__get_single_puppet)
+    puppet = property(__get_single_puppet)
 
     # utility methods
 
@@ -410,19 +414,21 @@ class PlayerDB(TypedObject, AbstractUser):
             # deleting command)
             self.unpuppet_object(session.sessid)
             session.sessionhandler.disconnect(session, reason=_("Player being deleted."))
-
+        self.scripts.stop()
+        _GA(self, "attributes").clear()
+        _GA(self, "nicks").clear()
+        _GA(self, "aliases").clear()
         super(PlayerDB, self).delete(*args, **kwargs)
 
     def execute_cmd(self, raw_string, sessid=None):
         """
         Do something as this player. This method is never called normally,
         but only when the player object itself is supposed to execute the
-        command. It does not take nicks on eventual puppets into account.
+        command. It takes player nicks into account, but not nicks of
+        eventual puppets.
 
         raw_string - raw command input coming from the command line.
         """
-        # nick replacement - we require full-word matching.
-
         raw_string = utils.to_unicode(raw_string)
         raw_string = self.nicks.nickreplace(raw_string,
                           categories=("inputline", "channel"), include_player=False)
@@ -430,38 +436,38 @@ class PlayerDB(TypedObject, AbstractUser):
             # in this case, we should either have only one sessid, or the sessid
             # should not matter (since the return goes to all of them we can
             # just use the first one as the source)
-            sessid = self.get_all_sessions()[0].sessid
+            try:
+                sessid = self.get_all_sessions()[0].sessid
+            except IndexError:
+                # this can happen for bots
+                sessid = None
         return cmdhandler.cmdhandler(self.typeclass, raw_string,
                                      callertype="player", sessid=sessid)
 
-    def search(self, ostring, return_puppet=False,
-               return_character=False, **kwargs):
+    def search(self, searchdata, return_puppet=False, **kwargs):
         """
         This is similar to the ObjectDB search method but will search for
         Players only. Errors will be echoed, and None returned if no Player
         is found.
-
-        return_character - will try to return the character the player controls
+        searchdata - search criterion, the Player's key or dbref to search for
+        return_puppet  - will try to return the object the player controls
                            instead of the Player object itself. If no
-                           Character exists (since Player is OOC), None will
+                           puppeted object exists (since Player is OOC), None will
                            be returned.
         Extra keywords are ignored, but are allowed in call in order to make
-                           API more consistent with objects.models.
-                           TypedObject.search.
+                           API more consistent with objects.models.TypedObject.search.
         """
-        if return_character:
+        #TODO deprecation
+        if "return_character" in kwargs:
             logger.log_depmsg("Player.search's 'return_character' keyword is deprecated. Use the return_puppet keyword instead.")
-            #return_puppet = return_character
-        # handle me, self
-        if ostring in (_ME, _SELF, '*' + _ME, '*' + _SELF):
-            return self
+            return_puppet = kwargs.get("return_character")
 
-        matches = _GA(self, "__class__").objects.player_search(ostring)
-        matches = _AT_SEARCH_RESULT(self, ostring, matches, global_search=True)
-        if matches and return_character:
+        matches = _GA(self, "__class__").objects.player_search(searchdata)
+        matches = _AT_SEARCH_RESULT(_GA(self, "typeclass"), searchdata, matches, global_search=True)
+        if matches and return_puppet:
             try:
-                return _GA(matches, "character")
-            except:
-                pass
+                return _GA(matches, "puppet")
+            except AttributeError:
+                return None
         return matches
 

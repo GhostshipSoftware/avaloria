@@ -37,6 +37,7 @@ SDISCONN = chr(5)     # server session disconnect
 SDISCONNALL = chr(6)  # server session disconnect all
 SSHUTD = chr(7)       # server shutdown
 SSYNC = chr(8)        # server session sync
+SCONN = chr(9)        # server portal connection (for bots)
 
 # i18n
 from django.utils.translation import ugettext as _
@@ -102,8 +103,9 @@ class SessionHandler(object):
     def oobstruct_parser(self, oobstruct):
         """
          Helper method for each session to use to parse oob structures
-         (The 'oob' kwarg of the msg() method)
-         allowed oob structures are
+         (The 'oob' kwarg of the msg() method).
+
+         Allowed input oob structures are:
                  cmdname
                 ((cmdname,), (cmdname,))
                 (cmdname,(arg, ))
@@ -133,23 +135,26 @@ class SessionHandler(object):
                     return (oobstruct[0].lower(), (), dict(oobstruct[1]))
                 elif isinstance(oobstruct[1], (tuple, list)):
                     # cmdname, (args,)
-                    return (oobstruct[0].lower(), tuple(oobstruct[1]), {})
+                    return (oobstruct[0].lower(), list(oobstruct[1]), {})
+                else:
+                    # cmdname, cmdname
+                    return ((oobstruct[0].lower(), (), {}), (oobstruct[1].lower(), (), {}))
             else:
                 # cmdname, (args,), {kwargs}
-                return (oobstruct[0].lower(), tuple(oobstruct[1]), dict(oobstruct[2]))
+                return (oobstruct[0].lower(), list(oobstruct[1]), dict(oobstruct[2]))
 
         if hasattr(oobstruct, "__iter__"):
             # differentiate between (cmdname, cmdname),
-            # (cmdname, args, kwargs) and ((cmdname,args,kwargs),
-            # (cmdname,args,kwargs), ...)
+            # (cmdname, (args), {kwargs}) and ((cmdname,(args),{kwargs}),
+            # (cmdname,(args),{kwargs}), ...)
 
             if oobstruct and isinstance(oobstruct[0], basestring):
-                return (tuple(_parse(oobstruct)),)
+                return (list(_parse(oobstruct)),)
             else:
                 out = []
                 for oobpart in oobstruct:
                     out.append(_parse(oobpart))
-                return (tuple(out),)
+                return (list(out),)
         return (_parse(oobstruct),)
 
 
@@ -200,7 +205,7 @@ class ServerSessionHandler(SessionHandler):
             # protocols like SSH
             sess.player = _PlayerDB.objects.get_player_from_uid(sess.uid)
         sess.at_sync()
-        # validate all script
+        # validate all scripts
         _ScriptDB.objects.validate()
         self.sessions[sess.sessid] = sess
         sess.data_in(CMD_LOGINSTART)
@@ -256,6 +261,25 @@ class ServerSessionHandler(SessionHandler):
         # announce the reconnection
         self.announce_all(_(" ... Server restarted."))
 
+    # server-side access methods
+
+    def start_bot_session(self, protocol_path, configdict):
+        """
+        This method allows the server-side to force the Portal to create
+        a new bot session using the protocol specified by protocol_path,
+        which should be the full python path to the class, including the
+        class name, like "src.server.portal.irc.IRCClient".
+        The new session will use the supplied player-bot uid to
+        initiate an already logged-in connection. The Portal will
+        treat this as a normal connection and henceforth so will the
+        Server.
+        """
+        data = {"protocol_path":protocol_path,
+                "config":configdict}
+        self.server.amp_protocol.call_remote_PortalAdmin(0,
+                                                         operation=SCONN,
+                                                         data=data)
+
     def portal_shutdown(self):
         """
         Called by server when shutting down the portal.
@@ -263,7 +287,6 @@ class ServerSessionHandler(SessionHandler):
         self.server.amp_protocol.call_remote_PortalAdmin(0,
                                                          operation=SSHUTD,
                                                          data="")
-    # server-side access methods
 
     def login(self, session, player, testmode=False):
         """

@@ -32,10 +32,11 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
         self.iaw_mode = False
         client_address = self.transport.client
         self.init_session("telnet", client_address, self.factory.sessionhandler)
-        # negotiate mccp (data compression)
-        self.mccp = Mccp(self)
         # negotiate ttype (client info)
+        # Obs: mudlet ttype does not seem to work if we start mccp before ttype. /Griatch
         self.ttype = ttype.Ttype(self)
+        # negotiate mccp (data compression) - turn this off for wireshark analysis
+        self.mccp = Mccp(self)
         # negotiate mssp (crawler communication)
         self.mssp = mssp.Mssp(self)
         # msdp
@@ -84,8 +85,8 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
 
     def connectionLost(self, reason):
         """
-        This is executed when the connection is lost for
-        whatever reason. It can also be called directly, from
+        this is executed when the connection is lost for
+        whatever reason. it can also be called directly, from
         the disconnect method
         """
         self.sessionhandler.disconnect(self)
@@ -97,6 +98,11 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
         starts with IAC (a telnet command) or not. All other data will
         be handled in line mode. Some clients also sends an erroneous
         line break after IAC, which we must watch out for.
+
+        OOB protocols (MSDP etc) already intercept subnegotiations
+        on their own, never entering this method. They will relay
+        their parsed data directly to self.data_in.
+
         """
 
         if data and data[0] == IAC or self.iaw_mode:

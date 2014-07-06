@@ -13,7 +13,7 @@ from django.conf import settings
 #from src.scripts.models import ScriptDB
 from src.comms.models import ChannelDB
 from src.utils import logger, utils
-from src.utils.utils import make_iter, to_unicode
+from src.utils.utils import make_iter, to_unicode, LazyLoadHandler
 from src.commands import cmdhandler, cmdsethandler
 from src.server.session import Session
 
@@ -49,7 +49,7 @@ class ServerSession(Session):
         self.puppet = None
         self.player = None
         self.cmdset_storage_string = ""
-        self.cmdset = cmdsethandler.CmdSetHandler(self)
+        self.cmdset = LazyLoadHandler(self, "cmdset", cmdsethandler.CmdSetHandler, True)
 
     def __cmdset_storage_get(self):
         return [path.strip() for path in self.cmdset_storage_string.split(',')]
@@ -103,8 +103,7 @@ class ServerSession(Session):
         self.player.save()
 
         # add the session-level cmdset
-        self.cmdset = cmdsethandler.CmdSetHandler(self)
-        self.cmdset.update(init_mode=True)
+        self.cmdset = LazyLoadHandler(self, "cmdset", cmdsethandler.CmdSetHandler, True)
 
     def at_disconnect(self):
         """
@@ -177,7 +176,11 @@ class ServerSession(Session):
         """
         Send User->Evennia. This will in effect
         execute a command string on the server.
-        Eventual extra data moves through oob_data_in
+
+        Especially handled keywords:
+
+        oob - this should hold a dictionary of oob command calls from
+              the oob-supporting protocol.
         """
         if text:
             # this is treated as a command input
@@ -203,6 +206,7 @@ class ServerSession(Session):
             if not _OOB_HANDLER:
                 from src.server.oobhandler import OOB_HANDLER as _OOB_HANDLER
             oobstruct = self.sessionhandler.oobstruct_parser(kwargs.pop("oob", None))
+            #print "session.data_in: oobstruct:",oobstruct
             for (funcname, args, kwargs) in oobstruct:
                 if funcname:
                     _OOB_HANDLER.execute_cmd(self, funcname, *args, **kwargs)

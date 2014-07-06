@@ -65,17 +65,9 @@ class CmdLook(MuxCommand):
 
         if args:
             # Use search to handle duplicate/nonexistant results.
-            looking_at_obj = caller.search(args, use_nicks=True, quiet=True)
+            looking_at_obj = caller.search(args, use_nicks=True)
             if not looking_at_obj:
-                if caller.location.db.decor_objects.keys() > 0:
-                    if args in caller.location.db.decor_objects.keys():
-                        string = caller.location.db.decor_objects[args]
-                        caller.msg(string)
-                        return
-                    else:
-                        return
-                else:
-                    return
+                return
         else:
             looking_at_obj = caller.location
             if not looking_at_obj:
@@ -85,7 +77,6 @@ class CmdLook(MuxCommand):
         if not hasattr(looking_at_obj, 'return_appearance'):
             # this is likely due to us having a player instead
             looking_at_obj = looking_at_obj.character
-
         if not looking_at_obj.access(caller, "view"):
             caller.msg("Could not find '%s'." % args)
             return

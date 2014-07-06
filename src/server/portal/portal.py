@@ -42,17 +42,21 @@ TELNET_PORTS = settings.TELNET_PORTS
 SSL_PORTS = settings.SSL_PORTS
 SSH_PORTS = settings.SSH_PORTS
 WEBSERVER_PORTS = settings.WEBSERVER_PORTS
+WEBSOCKET_CLIENT_PORT = settings.WEBSOCKET_CLIENT_PORT
 
 TELNET_INTERFACES = settings.TELNET_INTERFACES
 SSL_INTERFACES = settings.SSL_INTERFACES
 SSH_INTERFACES = settings.SSH_INTERFACES
 WEBSERVER_INTERFACES = settings.WEBSERVER_INTERFACES
+WEBSOCKET_CLIENT_INTERFACE = settings.WEBSOCKET_CLIENT_INTERFACE
+WEBSOCKET_CLIENT_URL = settings.WEBSOCKET_CLIENT_URL
 
 TELNET_ENABLED = settings.TELNET_ENABLED and TELNET_PORTS and TELNET_INTERFACES
 SSL_ENABLED = settings.SSL_ENABLED and SSL_PORTS and SSL_INTERFACES
 SSH_ENABLED = settings.SSH_ENABLED and SSH_PORTS and SSH_INTERFACES
 WEBSERVER_ENABLED = settings.WEBSERVER_ENABLED and WEBSERVER_PORTS and WEBSERVER_INTERFACES
 WEBCLIENT_ENABLED = settings.WEBCLIENT_ENABLED
+WEBSOCKET_CLIENT_ENABLED = settings.WEBSOCKET_CLIENT_ENABLED and WEBSOCKET_CLIENT_PORT and WEBSOCKET_CLIENT_INTERFACE
 
 AMP_HOST = settings.AMP_HOST
 AMP_PORT = settings.AMP_PORT
@@ -165,6 +169,7 @@ if AMP_ENABLED:
     amp_client.setName('evennia_amp')
     PORTAL.services.addService(amp_client)
 
+
 # We group all the various services under the same twisted app.
 # These will gradually be started as they are initialized below.
 
@@ -188,6 +193,7 @@ if TELNET_ENABLED:
             PORTAL.services.addService(telnet_service)
 
             print '  telnet%s: %s' % (ifacestr, port)
+
 
 if SSL_ENABLED:
 
@@ -236,6 +242,7 @@ if SSH_ENABLED:
 
             print "  ssl%s: %s" % (ifacestr, port)
 
+
 if WEBSERVER_ENABLED:
 
     # Start a reverse proxy to relay data to the Server-side webserver
@@ -251,10 +258,31 @@ if WEBSERVER_ENABLED:
             if WEBCLIENT_ENABLED:
                 # create ajax client processes at /webclientdata
                 from src.server.portal.webclient import WebClient
+
                 webclient = WebClient()
                 webclient.sessionhandler = PORTAL_SESSIONS
                 web_root.putChild("webclientdata", webclient)
-                webclientstr = "/client"
+                webclientstr = "\n   + client (ajax only)"
+
+                if WEBSOCKET_CLIENT_ENABLED:
+                    # start websocket client port for the webclient
+                    from src.server.portal import websocket_client
+                    from src.utils.txws import WebSocketFactory
+
+                    interface = WEBSOCKET_CLIENT_INTERFACE
+                    port = WEBSOCKET_CLIENT_PORT
+                    ifacestr = ""
+                    if interface not in ('0.0.0.0', '::'):
+                        ifacestr = "-%s" % interface
+                    pstring = "%s:%s" % (ifacestr, port)
+                    factory = protocol.ServerFactory()
+                    factory.protocol = websocket_client.WebSocketClient
+                    factory.sessionhandler = PORTAL_SESSIONS
+                    websocket_service = internet.TCPServer(port, WebSocketFactory(factory), interface=interface)
+                    websocket_service.setName('EvenniaWebSocket%s' % pstring)
+                    PORTAL.services.addService(websocket_service)
+
+                    webclientstr = webclientstr[:-11] + "(%s:%s)" % (WEBSOCKET_CLIENT_URL, port)
 
             web_root = server.Site(web_root, logPath=settings.HTTP_LOG_FILE)
             proxy_service = internet.TCPServer(proxyport,
@@ -262,7 +290,8 @@ if WEBSERVER_ENABLED:
                                                interface=interface)
             proxy_service.setName('EvenniaWebProxy%s' % pstring)
             PORTAL.services.addService(proxy_service)
-            print "  webproxy%s%s:%s (<-> %s)" % (webclientstr, ifacestr, proxyport, serverport)
+            print "  webproxy%s:%s (<-> %s)%s" % (ifacestr, proxyport, serverport, webclientstr)
+
 
 for plugin_module in PORTAL_SERVICES_PLUGIN_MODULES:
     # external plugin services to start

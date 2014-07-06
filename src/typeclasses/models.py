@@ -29,13 +29,16 @@ these to create custom managers.
 import sys
 import re
 import traceback
+import weakref
 
 from django.db import models
+from django.core.exceptions import ObjectDoesNotExist
 from django.conf import settings
+from django.db.models import Q
 from django.utils.encoding import smart_str
 from django.contrib.contenttypes.models import ContentType
 
-from src.utils.idmapper.models import SharedMemoryModel
+from src.utils.idmapper.models import SharedMemoryModel, WeakSharedMemoryModel
 from src.server.caches import get_prop_cache, set_prop_cache
 #from src.server.caches import set_attr_cache
 
@@ -44,11 +47,14 @@ from src.server.models import ServerConfig
 from src.typeclasses import managers
 from src.locks.lockhandler import LockHandler
 from src.utils import logger
-from src.utils.utils import make_iter, is_iter, to_str
+from src.utils.utils import (
+    make_iter, is_iter, to_str, inherits_from, LazyLoadHandler)
 from src.utils.dbserialize import to_pickle, from_pickle
 from src.utils.picklefield import PickledObjectField
 
 __all__ = ("Attribute", "TypeNick", "TypedObject")
+
+TICKER_HANDLER = None
 
 _PERMISSION_HIERARCHY = [p.lower() for p in settings.PERMISSION_HIERARCHY]
 _TYPECLASS_AGGRESSIVE_CACHE = settings.TYPECLASS_AGGRESSIVE_CACHE
@@ -94,20 +100,34 @@ class Attribute(SharedMemoryModel):
     # These database fields are all set using their corresponding properties,
     # named same as the field, but withtout the db_* prefix.
     db_key = models.CharField('key', max_length=255, db_index=True)
-    # access through the value property
-    db_value = PickledObjectField('value', null=True)
-    # string-specific storage for quick look-up
-    db_strvalue = models.TextField('strvalue', null=True, blank=True)
-    # optional categorization of attribute
-    db_category = models.CharField('category', max_length=128, db_index=True, blank=True, null=True)
+    db_value = PickledObjectField(
+        'value', null=True,
+        help_text="The data returned when the attribute is accessed. Must be "
+                  "written as a Python literal if editing through the admin "
+                  "interface. Attribute values which are not Python literals "
+                  "cannot be edited through the admin interface.")
+    db_strvalue = models.TextField(
+        'strvalue', null=True, blank=True,
+        help_text="String-specific storage for quick look-up")
+    db_category = models.CharField(
+        'category', max_length=128, db_index=True, blank=True, null=True,
+        help_text="Optional categorization of attribute.")
     # Lock storage
-    db_lock_storage = models.TextField('locks', blank=True)
-    # Which model of object this Attribute is attached to (A natural key like objects.dbobject)
-    db_model = models.CharField('model', max_length=32, db_index=True, blank=True, null=True)
+    db_lock_storage = models.TextField(
+        'locks', blank=True,
+        help_text="Lockstrings for this object are stored here.")
+    db_model = models.CharField(
+        'model', max_length=32, db_index=True, blank=True, null=True,
+        help_text="Which model of object this attribute is attached to (A "
+                  "natural key like objects.dbobject). You should not change "
+                  "this value unless you know what you are doing.")
     # subclass of Attribute (None or nick)
-    db_attrtype = models.CharField('attrtype', max_length=16, db_index=True, blank=True, null=True)
+    db_attrtype = models.CharField(
+        'attrtype', max_length=16, db_index=True, blank=True, null=True,
+        help_text="Subclass of Attribute (None or nick)")
     # time stamp
-    db_date_created = models.DateTimeField('date_created', editable=False, auto_now_add=True)
+    db_date_created = models.DateTimeField(
+        'date_created', editable=False, auto_now_add=True)
 
     # Database manager
     objects = managers.AttributeManager()
@@ -115,12 +135,31 @@ class Attribute(SharedMemoryModel):
     # Lock handler self.locks
     def __init__(self, *args, **kwargs):
         "Initializes the parent first -important!"
-        SharedMemoryModel.__init__(self, *args, **kwargs)
-        self.locks = LockHandler(self)
+        #SharedMemoryModel.__init__(self, *args, **kwargs)
+        super(Attribute, self).__init__(*args, **kwargs)
+        self.locks = LazyLoadHandler(self, "locks", LockHandler)
 
     class Meta:
         "Define Django meta options"
         verbose_name = "Evennia Attribute"
+
+    # read-only wrappers
+    key = property(lambda self: self.db_key)
+    strvalue = property(lambda self: self.db_strvalue)
+    category = property(lambda self: self.db_category)
+    model = property(lambda self: self.db_model)
+    attrtype = property(lambda self: self.db_attrtype)
+    date_created = property(lambda self: self.db_date_created)
+
+    def __lock_storage_get(self):
+        return self.db_lock_storage
+    def __lock_storage_set(self, value):
+        self.db_lock_storage = value
+        self.save(update_fields=["db_lock_storage"])
+    def __lock_storage_del(self):
+        self.db_lock_storage = ""
+        self.save(update_fields=["db_lock_storage"])
+    lock_storage = property(__lock_storage_get, __lock_storage_set, __lock_storage_del)
 
     # Wrapper properties to easily set database fields. These are
     # @property decorators that allows to access these fields using
@@ -148,12 +187,7 @@ class Attribute(SharedMemoryModel):
         see self.__value_get.
         """
         self.db_value = to_pickle(new_value)
-        self.save()
-        try:
-            self._track_db_value_change.update(self.cached_value)
-        except AttributeError:
-            pass
-        return
+        self.save(update_fields=["db_value"])
 
     #@value.deleter
     def __value_del(self):
@@ -182,14 +216,8 @@ class Attribute(SharedMemoryModel):
         **kwargs - passed to at_access hook along with result.
         """
         result = self.locks.check(accessing_obj, access_type=access_type, default=default)
-        self.at_access(result, **kwargs)
+        #self.at_access(result, **kwargs)
         return result
-
-    def at_set(self, new_value):
-        """
-        Hook method called when the attribute changes value.
-        """
-        pass
 
 
 #
@@ -213,10 +241,14 @@ class AttributeHandler(object):
         self._cache = None
 
     def _recache(self):
+        if not self._attrtype:
+            attrtype = Q(db_attrtype=None) | Q(db_attrtype='')
+        else:
+            attrtype = Q(db_attrtype=self._attrtype)
         self._cache = dict(("%s-%s" % (to_str(attr.db_key).lower(),
                                        attr.db_category.lower() if attr.db_category else None), attr)
-                        for attr in _GA(self.obj, self._m2m_fieldname).filter(
-                            db_model=self._model, db_attrtype=self._attrtype))
+                        for attr in getattr(self.obj, self._m2m_fieldname).filter(
+                            db_model=self._model).filter(attrtype))
         #set_attr_cache(self.obj, self._cache) # currently only for testing
 
     def has(self, key, category=None):
@@ -236,14 +268,14 @@ class AttributeHandler(object):
 
     def get(self, key=None, category=None, default=None, return_obj=False,
             strattr=False, raise_exception=False, accessing_obj=None,
-            default_access=True):
+            default_access=True, not_found_none=False):
         """
         Returns the value of the given Attribute or list of Attributes.
         strattr will cause the string-only value field instead of the normal
         pickled field data. Use to get back values from Attributes added with
         the strattr keyword.
         If return_obj=True, return the matching Attribute object
-        instead. Returns None if no matches (or [ ] if key was a list
+        instead. Returns default if no matches (or [ ] if key was a list
         with no matches). If raise_exception=True, failure to find a
         match will raise AttributeError instead.
 
@@ -251,6 +283,13 @@ class AttributeHandler(object):
         checked before displaying each looked-after Attribute. If no
         accessing_obj is given, no check will be done.
         """
+
+        class RetDefault(object):
+            "Holds default values"
+            def __init__(self):
+                self.value = default
+                self.strvalue = str(default) if default is not None else None
+
         if self._cache is None or not _TYPECLASS_AGGRESSIVE_CACHE:
             self._recache()
         ret = []
@@ -270,7 +309,7 @@ class AttributeHandler(object):
                     if raise_exception:
                         raise AttributeError
                     else:
-                        ret.append(default)
+                        ret.append(RetDefault())
         if accessing_obj:
             # check 'attrread' locks
             ret = [attr for attr in ret if attr.access(accessing_obj, self._attrread, default=default_access)]
@@ -278,7 +317,10 @@ class AttributeHandler(object):
             ret = ret if return_obj else [attr.strvalue for attr in ret if attr]
         else:
             ret = ret if return_obj else [attr.value for attr in ret if attr]
+        if not ret:
+            return ret if len(key) > 1 else default
         return ret[0] if len(ret)==1 else ret
+
 
     def add(self, key, value, category=None, lockstring="",
             strattr=False, accessing_obj=None, default_access=True):
@@ -300,29 +342,87 @@ class AttributeHandler(object):
             self._recache()
         if not key:
             return
-        key = key.strip().lower()
+
         category = category.strip().lower() if category is not None else None
-        cachekey = "%s-%s" % (key, category)
+        keystr = key.strip().lower()
+        cachekey = "%s-%s" % (keystr, category)
         attr_obj = self._cache.get(cachekey)
-        if not attr_obj:
-            # no old attr available; create new.
-            attr_obj = Attribute(db_key=key, db_category=category,
-                                 db_model=self._model, db_attrtype=self._attrtype)
-            attr_obj.save()  # important
-            _GA(self.obj, self._m2m_fieldname).add(attr_obj)
-            self._cache[cachekey] = attr_obj
-        if lockstring:
-            attr_obj.locks.add(lockstring)
-        # we shouldn't need to fear stale objects, the field signalling
-        # should catch all cases
-        if strattr:
-            # store as a simple string
-            attr_obj.strvalue = value
-            attr_obj.value = None
+
+        if attr_obj:
+            # update an existing attribute object
+            if strattr:
+                # store as a simple string (will not notify OOB handlers)
+                attr_obj.db_strvalue = value
+                attr_obj.save(update_fields=["db_strvalue"])
+            else:
+                # store normally (this will also notify OOB handlers)
+                attr_obj.value = value
         else:
-            # pickle arbitrary data
-            attr_obj.value = value
-            attr_obj.strvalue = None
+            # create a new Attribute (no OOB handlers can be notified)
+            kwargs = {"db_key" : keystr, "db_category" : category,
+                      "db_model" : self._model, "db_attrtype" : self._attrtype,
+                      "db_value" : None if strattr else to_pickle(value),
+                      "db_strvalue" : value if strattr else None}
+            new_attr = Attribute(**kwargs)
+            new_attr.save()
+            getattr(self.obj, self._m2m_fieldname).add(new_attr)
+            self._cache[cachekey] = new_attr
+
+
+    def batch_add(self, key, value, category=None, lockstring="",
+            strattr=False, accessing_obj=None, default_access=True):
+        """
+        Batch-version of add(). This is more efficient than
+        repeat-calling add.
+
+        key and value must be sequences of the same length, each
+        representing a key-value pair.
+
+        """
+        if accessing_obj and not self.obj.access(accessing_obj,
+                                      self._attrcreate, default=default_access):
+            # check create access
+            return
+        if self._cache is None:
+            self._recache()
+        if not key:
+            return
+
+        keys, values= make_iter(key), make_iter(value)
+
+        if len(keys) != len(values):
+            raise RuntimeError("AttributeHandler.add(): key and value of different length: %s vs %s" % key, value)
+        category = category.strip().lower() if category is not None else None
+        new_attrobjs = []
+        for ikey, keystr in enumerate(keys):
+            keystr = keystr.strip().lower()
+            new_value = values[ikey]
+            cachekey = "%s-%s" % (keystr, category)
+            attr_obj = self._cache.get(cachekey)
+
+            if attr_obj:
+                # update an existing attribute object
+                if strattr:
+                    # store as a simple string (will not notify OOB handlers)
+                    attr_obj.db_strvalue = new_value
+                    attr_obj.save(update_fields=["db_strvalue"])
+                else:
+                    # store normally (this will also notify OOB handlers)
+                    attr_obj.value = new_value
+            else:
+                # create a new Attribute (no OOB handlers can be notified)
+                kwargs = {"db_key" : keystr, "db_category" : category,
+                          "db_model" : self._model, "db_attrtype" : self._attrtype,
+                          "db_value" : None if strattr else to_pickle(new_value),
+                          "db_strvalue" : value if strattr else None}
+                new_attr = Attribute(**kwargs)
+                new_attr.save()
+                new_attrobjs.append(new_attr)
+        if new_attrobjs:
+            # Add new objects to m2m field all at once
+            getattr(self.obj, self._m2m_fieldname).add(*new_attrobjs)
+            self._recache()
+
 
     def remove(self, key, raise_exception=False, category=None,
                accessing_obj=None, default_access=True):
@@ -351,10 +451,13 @@ class AttributeHandler(object):
         given, check the 'attredit' lock on each Attribute before
         continuing. If not given, skip check.
         """
-        for attr in self.all(category=category, accessing_obj=accessing_obj, default_access=default_access):
-            if accessing_obj and not attr.access(accessing_obj, self._attredit, default=default_access):
-                continue
-            attr.delete()
+        if self._cache is None or not _TYPECLASS_AGGRESSIVE_CACHE:
+            self._recache()
+        if accessing_obj:
+            [attr.delete() for attr in self._cache.values()
+             if attr.access(accessing_obj, self._attredit, default=default_access)]
+        else:
+            [attr.delete() for attr in self._cache.values()]
         self._recache()
 
     def all(self, accessing_obj=None, default_access=True):
@@ -367,7 +470,12 @@ class AttributeHandler(object):
         """
         if self._cache is None or not _TYPECLASS_AGGRESSIVE_CACHE:
             self._recache()
-        return self._cache.values()
+        if accessing_obj:
+            return [attr for attr in self._cache.values()
+                    if attr.access(accessing_obj, self._attredit, default=default_access)]
+        else:
+            return self._cache.values()
+
 
 class NickHandler(AttributeHandler):
     """
@@ -399,10 +507,10 @@ class NickHandler(AttributeHandler):
         raw_string
         obj_nicks, player_nicks = [], []
         for category in make_iter(categories):
-            obj_nicks.extend(make_iter(self.get(category=category, return_obj=True)))
+            obj_nicks.extend([n for n in make_iter(self.get(category=category, return_obj=True)) if n])
         if include_player and self.obj.has_player:
             for category in make_iter(categories):
-                player_nicks.extend(make_iter(self.obj.player.nicks.get(category=category, return_obj=True)))
+                player_nicks.extend([n for n in make_iter(self.obj.player.nicks.get(category=category, return_obj=True)) if n])
         for nick in obj_nicks + player_nicks:
             # make a case-insensitive match here
             match = re.match(re.escape(nick.db_key), raw_string, re.IGNORECASE)
@@ -414,36 +522,40 @@ class NickHandler(AttributeHandler):
 
 class NAttributeHandler(object):
     """
-    This stand-alone handler manages non-database saved properties by storing
-    them as properties on obj.ndb. It has the same methods as AttributeHandler,
-    but they are much simplified.
+    This stand-alone handler manages non-database saving.
+    It is consistent with AttributeHandler and is used
+    by the .ndb handler in the same way as .db does
+    for the AttributeHandler.
     """
     def __init__(self, obj):
         "initialized on the object"
-        self.ndb = _GA(obj, "ndb")
+        self._store = {}
+        self.obj = weakref.proxy(obj)
 
     def has(self, key):
         "Check if object has this attribute or not"
-        return _GA(self.ndb, key)  # ndb returns None if not found
+        return key in self._store
 
     def get(self, key):
         "Returns named key value"
-        return _GA(self.ndb, key)
+        return self._store.get(key, None)
 
     def add(self, key, value):
         "Add new key and value"
-        _SA(self.ndb, key, value)
+        self._store[key] = value
+        self.obj.set_recache_protection()
 
     def remove(self, key):
         "Remove key from storage"
-        _DA(self.ndb, key)
+        if key in self._store:
+            del self._store[key]
+        self.obj.set_recache_protection(self._store)
 
-    def all(self):
-        "List all keys stored"
-        if callable(self.ndb.all):
-            return self.ndb.all()
-        else:
-            return [val for val in self.ndb.__dict__.keys() if not val.startswith('_')]
+    def all(self, return_tuples=False):
+        "List all keys or (keys, values) stored, except _keys"
+        if return_tuples:
+            return [(key, value) for (key, value) in self._store.items() if not key.startswith("_")]
+        return [key for key in self._store if not key.startswith("_")]
 
 
 #------------------------------------------------------------
@@ -488,8 +600,8 @@ class Tag(models.Model):
     class Meta:
         "Define Django meta options"
         verbose_name = "Tag"
-        unique_together = (('db_key', 'db_category'),)
-        index_together = (('db_key', 'db_category'),)
+        unique_together = (('db_key', 'db_category', 'db_tagtype'),)
+        index_together = (('db_key', 'db_category', 'db_tagtype'),)
 
     def __unicode__(self):
         return u"%s" % self.db_key
@@ -519,15 +631,21 @@ class TagHandler(object):
         self._model = "%s.%s" % ContentType.objects.get_for_model(obj).natural_key()
         self._cache = None
 
-
     def _recache(self):
         "Update cache from database field"
+        if not self._tagtype:
+            tagtype = Q(db_tagtype='') | Q(db_tagtype__isnull=True)
+        else:
+            tagtype = Q(db_tagtype=self._tagtype)
         self._cache = dict(("%s-%s" % (tag.db_key, tag.db_category), tag)
-                            for tag in _GA(self.obj, self._m2m_fieldname).filter(
-                                         db_model=self._model, db_tagtype=self._tagtype))
+                           for tag in getattr(
+                               self.obj, self._m2m_fieldname).filter(
+                                   db_model=self._model).filter(tagtype))
 
-    def add(self, tag, category=None, data=None):
+    def add(self, tag=None, category=None, data=None):
         "Add a new tag to the handler. Tag is a string or a list of strings."
+        if not tag:
+            return
         for tagstr in make_iter(tag):
             if not tagstr:
                 continue
@@ -539,7 +657,7 @@ class TagHandler(object):
             # considered part of making the tag unique)
             tagobj = Tag.objects.create_tag(key=tagstr, category=category, data=data,
                                             model=self._model, tagtype=self._tagtype)
-            _GA(self.obj, self._m2m_fieldname).add(tagobj)
+            getattr(self.obj, self._m2m_fieldname).add(tagobj)
             if self._cache is None:
                 self._recache()
             cachestring = "%s-%s" % (tagstr, category)
@@ -556,29 +674,29 @@ class TagHandler(object):
         ret = []
         category = category.strip().lower() if category is not None else None
         searchkey = ["%s-%s" % (key.strip().lower(), category) if key is not None else None for key in make_iter(key)]
-        ret = [val for val in (self._cache.get(searchkey) for keystr in key) if val]
+        ret = [val for val in (self._cache.get(keystr) for keystr in searchkey) if val]
         ret = [to_str(tag.db_data) for tag in ret] if return_tagobj else ret
         return ret[0] if len(ret) == 1 else ret
 
     def remove(self, key, category=None):
         "Remove a tag from the handler based ond key and category."
-        for tag in make_iter(tag):
-            if not (tag or tag.strip()):  # we don't allow empty tags
+        for key in make_iter(key):
+            if not (key or key.strip()):  # we don't allow empty tags
                 continue
-            tagstr = tag.strip().lower() if tag is not None else None
-            category = category.strip().lower() if tag is not None else None
+            tagstr = key.strip().lower()
+            category = category.strip().lower() if category is not None else None
 
             # This does not delete the tag object itself. Maybe it should do
             # that when no objects reference the tag anymore (how to check)?
             tagobj = self.obj.db_tags.filter(db_key=tagstr, db_category=category)
             if tagobj:
-                _GA(self.obj, self._m2m_fieldname).remove(tagobj[0])
+                getattr(self.obj, self._m2m_fieldname).remove(tagobj[0])
         self._recache()
 
     def clear(self):
         "Remove all tags from the handler"
-        for tag in _GA(self.obj, self._m2m_fieldname).filter(db_model=self._model, db_tagtype=self._tagtype):
-            _GA(self.obj, self._m2m_fieldname).remove(tag)
+        for tag in getattr(self.obj, self._m2m_fieldname).filter(db_model=self._model, db_tagtype=self._tagtype):
+            getattr(self.obj, self._m2m_fieldname).remove(tag)
         self._recache()
 
     def all(self, category=None, return_key_and_category=False):
@@ -591,9 +709,9 @@ class TagHandler(object):
             self._recache()
         if category:
             category = category.strip().lower() if category is not None else None
-            matches = _GA(self.obj, self._m2m_fieldname).filter(db_category=category,
+            matches = getattr(self.obj, self._m2m_fieldname).filter(db_category=category,
                                                                 db_tagtype=self._tagtype,
-                                                                db_model=self._model).values_list("db_key")
+                                                                db_model=self._model)
         else:
             matches = self._cache.values()
         if matches:
@@ -603,8 +721,6 @@ class TagHandler(object):
             else:
                 return [to_str(p.db_key) for p in matches]
         return []
-
-        #return [to_str(p[0]) for p in _GA(self.obj, self._m2m_fieldname).filter(db_category__startswith=self.prefix).values_list("db_key") if p[0]]
 
     def __str__(self):
         return ",".join(self.all())
@@ -687,12 +803,16 @@ class TypedObject(SharedMemoryModel):
     # lock handler self.locks
     def __init__(self, *args, **kwargs):
         "We must initialize the parent first - important!"
-        super(SharedMemoryModel, self).__init__(*args, **kwargs)
+        super(TypedObject, self).__init__(*args, **kwargs)
         #SharedMemoryModel.__init__(self, *args, **kwargs)
         _SA(self, "dbobj", self)   # this allows for self-reference
-        _SA(self, "locks", LockHandler(self))
-        _SA(self, "permissions", PermissionHandler(self))
+        _SA(self, "locks", LazyLoadHandler(self, "locks", LockHandler))
+        _SA(self, "tags", LazyLoadHandler(self, "tags", TagHandler))
+        _SA(self, "aliases", LazyLoadHandler(self, "aliases", AliasHandler))
+        _SA(self, "permissions", LazyLoadHandler(self, "permissions", PermissionHandler))
+        _SA(self, "attributes", LazyLoadHandler(self, "attributes", AttributeHandler))
         _SA(self, "nattributes", NAttributeHandler(self))
+        #_SA(self, "nattributes", LazyLoadHandler(self, "nattributes", NAttributeHandler))
 
     class Meta:
         """
@@ -803,6 +923,11 @@ class TypedObject(SharedMemoryModel):
         raise Exception("dbref cannot be deleted!")
     dbref = property(__dbref_get, __dbref_set, __dbref_del)
 
+    # the latest error string will be stored here for accessing methods to access.
+    # It is set by _display_errmsg, which will print to log if error happens
+    # during server startup.
+    typeclass_last_errmsg = ""
+
     # typeclass property
     #@property
     def __typeclass_get(self):
@@ -817,7 +942,6 @@ class TypedObject(SharedMemoryModel):
               of normal dot notation) is due to optimization: it avoids calling
               the custom self.__getattribute__ more than necessary.
         """
-
         path = _GA(self, "typeclass_path")
         typeclass = _GA(self, "_cached_typeclass")
         try:
@@ -842,7 +966,6 @@ class TypedObject(SharedMemoryModel):
 
                 # try to import and analyze the result
                 typeclass = _GA(self, "_path_import")(tpath)
-                #print "typeclass:",typeclass,tpath
                 if callable(typeclass):
                     # we succeeded to import. Cache and return.
                     _SA(self, "typeclass_path", tpath)
@@ -859,13 +982,16 @@ class TypedObject(SharedMemoryModel):
                 elif hasattr(typeclass, '__file__'):
                     errstring += "\n%s seems to be just the path to a module. You need" % tpath
                     errstring +=  " to specify the actual typeclass name inside the module too."
-                else:
-                    errstring += "\n%s" % typeclass # this will hold a growing error message.
+                elif typeclass:
+                    errstring += "\n%s" % typeclass.strip()    # this will hold a growing error message.
+            if not errstring:
+                errstring = "\nMake sure the path is set correctly. Paths tested:\n"
+                errstring += ", ".join(typeclass_paths)
+            errstring += "\nTypeclass code was not found or failed to load."
         # If we reach this point we couldn't import any typeclasses. Return
         # default. It's up to the calling method to use e.g. self.is_typeclass()
         # to detect that the result is not the one asked for.
-        _GA(self, "_display_errmsg")(errstring)
-        _SA(self, "typeclass_lasterrmsg", errstring)
+        _GA(self, "_display_errmsg")(errstring.strip())
         return _GA(self, "_get_default_typeclass")(cache=False, silent=False, save=False)
 
     #@typeclass.deleter
@@ -876,10 +1002,6 @@ class TypedObject(SharedMemoryModel):
     # typeclass property
     typeclass = property(__typeclass_get, fdel=__typeclass_del)
 
-    # the last error string will be stored here for accessing methods to access.
-    # It is set by _display_errmsg, which will print to log if error happens
-    # during server startup.
-    typeclass_last_errmsg = ""
 
     def _path_import(self, path):
         """
@@ -900,10 +1022,11 @@ class TypedObject(SharedMemoryModel):
             if not trc.tb_next:
                 # we separate between not finding the module, and finding
                 # a buggy one.
-                errstring = "Typeclass not found trying path '%s'." % path
+                pass
+                #errstring = "Typeclass not found trying path '%s'." % path
             else:
                 # a bug in the module is reported normally.
-                trc = traceback.format_exc()
+                trc = traceback.format_exc().strip()
                 errstring = "\n%sError importing '%s'." % (trc, path)
         except (ValueError, TypeError):
             errstring = "Malformed typeclass path '%s'." % path
@@ -911,7 +1034,7 @@ class TypedObject(SharedMemoryModel):
             errstring = "No class '%s' was found in module '%s'."
             errstring = errstring % (class_name, modpath)
         except Exception:
-            trc = traceback.format_exc()
+            trc = traceback.format_exc().strip()
             errstring = "\n%sException importing '%s'." % (trc, path)
         # return the error.
         return errstring
@@ -920,10 +1043,11 @@ class TypedObject(SharedMemoryModel):
         """
         Helper function to display error.
         """
+        _SA(self, "typeclass_last_errmsg", message)
         if ServerConfig.objects.conf("server_starting_mode"):
-            print message.strip()
+            print message
         else:
-            _SA(self, "typeclass_last_errmsg", message.strip())
+            logger.log_errmsg(message)
         return
 
     def _get_default_typeclass(self, cache=False, silent=False, save=False):
@@ -950,8 +1074,8 @@ class TypedObject(SharedMemoryModel):
             if not silent:
                 #errstring = "  %s\n%s" % (typeclass, errstring)
                 errstring = "  Default class '%s' failed to load." % failpath
-                errstring += "\n  Using Evennia's default class '%s'." % defpath
-                _GA(self, "_display_errmsg")(errstring)
+                errstring += "\n  Using Evennia's default root '%s'." % defpath
+                _GA(self, "_display_errmsg")(errstring.strip())
         if not callable(typeclass):
             # if this is still giving an error, Evennia is wrongly
             # configured or buggy
@@ -1001,17 +1125,12 @@ class TypedObject(SharedMemoryModel):
                                 _GA(cls, "__name__")) == typec
                                     for typec in typeclasses))))
 
-    def delete(self, *args, **kwargs):
-        """
-        Type-level cleanup
-        """
-        super(TypedObject, self).delete(*args, **kwargs)
-
     #
     # Object manipulation methods
     #
 
-    def swap_typeclass(self, new_typeclass, clean_attributes=False, no_default=True):
+    def swap_typeclass(self, new_typeclass, clean_attributes=False,
+                       run_start_hooks=True, no_default=True):
         """
         This performs an in-situ swap of the typeclass. This means
         that in-game, this object will suddenly be something else.
@@ -1054,6 +1173,13 @@ class TypedObject(SharedMemoryModel):
         # Try to set the new path
         # this will automatically save to database
         old_typeclass_path = self.typeclass_path
+
+        if inherits_from(self, "src.scripts.models.ScriptDB"):
+            if self.interval > 0:
+                raise RuntimeError("Cannot use swap_typeclass on time-dependent " \
+                                   "Script '%s'.\nStop and start a new Script of the " \
+                                   "right type instead." % self.key)
+
         _SA(self, "typeclass_path", new_typeclass.strip())
         # this will automatically use a default class if
         # there is an error with the given typeclass.
@@ -1079,9 +1205,21 @@ class TypedObject(SharedMemoryModel):
                 for nattr in self.ndb.all:
                     del nattr
 
-        # run hooks for this new typeclass
-        new_typeclass.basetype_setup()
-        new_typeclass.at_object_creation()
+        if run_start_hooks:
+            # run hooks for this new typeclass
+            if inherits_from(self, "src.objects.models.ObjectDB"):
+                new_typeclass.basetype_setup()
+                new_typeclass.at_object_creation()
+            elif inherits_from(self, "src.players.models.PlayerDB"):
+                new_typeclass.basetype_setup()
+                new_typeclass.at_player_creation()
+            elif inherits_from(self, "src.scripts.models.ScriptDB"):
+                new_typeclass.at_script_creation()
+                new_typeclass.start()
+            elif inherits_from(self, "src.channels.models.Channel"):
+                # channels do no initial setup
+                pass
+
         return True
 
     #
@@ -1126,6 +1264,38 @@ class TypedObject(SharedMemoryModel):
         return False
 
     #
+    # Deletion methods
+    #
+
+    def _deleted(self, *args, **kwargs):
+        "Scrambling method for already deleted objects"
+        raise ObjectDoesNotExist("This object was already deleted!")
+
+    _is_deleted = False # this is checked by db_* wrappers
+
+    def delete(self):
+        "Cleaning up handlers on the typeclass level"
+        global TICKER_HANDLER
+        if not TICKER_HANDLER:
+            from src.scripts.tickerhandler import TICKER_HANDLER
+        TICKER_HANDLER.remove(self) # removes objects' all ticker subscriptions
+        if not isinstance(_GA(self, "permissions"), LazyLoadHandler):
+            _GA(self, "permissions").clear()
+        if not isinstance(_GA(self, "attributes"), LazyLoadHandler):
+            _GA(self, "attributes").clear()
+        if not isinstance(_GA(self, "aliases"), LazyLoadHandler):
+            _GA(self, "aliases").clear()
+        if hasattr(self, "nicks") and not isinstance(_GA(self, "nicks"), LazyLoadHandler):
+            _GA(self, "nicks").clear()
+        _SA(self, "_cached_typeclass", None)
+        _GA(self, "flush_from_cache")()
+
+        # scrambling properties
+        self.delete = self._deleted
+        self._is_deleted = True
+        super(TypedObject, self).delete()
+
+    #
     # Memory management
     #
 
@@ -1160,8 +1330,7 @@ class TypedObject(SharedMemoryModel):
             class DbHolder(object):
                 "Holder for allowing property access of attributes"
                 def __init__(self, obj):
-                    _SA(self, 'obj', obj)
-                    _SA(self, "attrhandler", _GA(_GA(self, "obj"), "attributes"))
+                    _SA(self, "attrhandler", _GA(obj, "attributes"))
 
                 def __getattribute__(self, attrname):
                     if attrname == 'all':
@@ -1212,202 +1381,207 @@ class TypedObject(SharedMemoryModel):
         try:
             return self._ndb_holder
         except AttributeError:
-            class NdbHolder(object):
-                "Holder for storing non-attr_obj attributes."
+            class NDbHolder(object):
+                "Holder for allowing property access of attributes"
+                def __init__(self, obj):
+                    _SA(self, "nattrhandler", _GA(obj, "nattributes"))
+
+                def __getattribute__(self, attrname):
+                    if attrname == 'all':
+                        # we allow to overload our default .all
+                        attr = _GA(self, "nattrhandler").get("all")
+                        if attr:
+                            return attr
+                        return _GA(self, 'all')
+                    return _GA(self, "nattrhandler").get(attrname)
+
+                def __setattr__(self, attrname, value):
+                    _GA(self, "nattrhandler").add(attrname, value)
+
+                def __delattr__(self, attrname):
+                    _GA(self, "nattrhandler").remove(attrname)
+
                 def get_all(self):
-                    return [val for val in self.__dict__.keys()
-                            if not val.startswith('_')]
+                    return _GA(self, "nattrhandler").all()
                 all = property(get_all)
-
-                def __getattribute__(self, key):
-                    # return None if no matching attribute was found.
-                    try:
-                        return _GA(self, key)
-                    except AttributeError:
-                        return None
-
-                def __setattr__(self, key, value):
-                    # hook the oob handler here
-                    #call_ndb_hooks(self, key, value)
-                    _SA(self, key, value)
-            self._ndb_holder = NdbHolder()
+            self._ndb_holder = NDbHolder(self)
             return self._ndb_holder
 
-    #@ndb.setter
+    #@db.setter
     def __ndb_set(self, value):
-        "Stop accidentally replacing the db object"
+        "Stop accidentally replacing the ndb object"
         string = "Cannot assign directly to ndb object! "
-        string = "Use ndb.attr=value instead."
+        string += "Use ndb.attr=value instead."
         raise Exception(string)
 
-    #@ndb.deleter
+    #@db.deleter
     def __ndb_del(self):
         "Stop accidental deletion."
         raise Exception("Cannot delete the ndb object!")
     ndb = property(__ndb_get, __ndb_set, __ndb_del)
 
-    #
-    # ***** DEPRECATED METHODS BELOW   *******
-    #
-
-    #
-    # Full attr_obj attributes. You usually access these
-    # through the obj.db.attrname method.
-
-    # Helper methods for attr_obj attributes
-
-    def has_attribute(self, attribute_name):
-        """
-        See if we have an attribute set on the object.
-
-        attribute_name: (str) The attribute's name.
-        """
-        logger.log_depmsg("obj.has_attribute() is deprecated. Use obj.attributes.has().")
-        return _GA(self, "attributes").has(attribute_name)
-
-    def set_attribute(self, attribute_name, new_value=None, lockstring=""):
-        """
-        Sets an attribute on an object. Creates the attribute if need
-        be.
-
-        attribute_name: (str) The attribute's name.
-        new_value: (python obj) The value to set the attribute to. If this is not
-                                a str, the object will be stored as a pickle.
-        lockstring - this sets an access restriction on the attribute object. Note that
-                     this is normally NOT checked - use the secureattr() access method
-                     below to perform access-checked modification of attributes. Lock
-                     types checked by secureattr are 'attrread','attredit','attrcreate'.
-        """
-        logger.log_depmsg("obj.set_attribute() is deprecated. Use obj.db.attr=value or obj.attributes.add().")
-        _GA(self, "attributes").add(attribute_name, new_value, lockstring=lockstring)
-
-    def get_attribute_obj(self, attribute_name, default=None):
-        """
-        Get the actual attribute object named attribute_name
-        """
-        logger.log_depmsg("obj.get_attribute_obj() is deprecated. Use obj.attributes.get(..., return_obj=True)")
-        return _GA(self, "attributes").get(attribute_name, default=default, return_obj=True)
-
-    def get_attribute(self, attribute_name, default=None, raise_exception=False):
-        """
-        Returns the value of an attribute on an object. You may need to
-        type cast the returned value from this function since the attribute
-        can be of any type. Returns default if no match is found.
-
-        attribute_name: (str) The attribute's name.
-        default: What to return if no attribute is found
-        raise_exception (bool) - raise an exception if no object exists instead of returning default.
-        """
-        logger.log_depmsg("obj.get_attribute() is deprecated. Use obj.db.attr or obj.attributes.get().")
-        return _GA(self, "attributes").get(attribute_name, default=default, raise_exception=raise_exception)
-
-    def del_attribute(self, attribute_name, raise_exception=False):
-        """
-        Removes an attribute entirely.
-
-        attribute_name: (str) The attribute's name.
-        raise_exception (bool) - raise exception if attribute to delete
-                                 could not be found
-        """
-        logger.log_depmsg("obj.del_attribute() is deprecated. Use del obj.db.attr or obj.attributes.remove().")
-        _GA(self, "attributes").remove(attribute_name, raise_exception=raise_exception)
-
-    def get_all_attributes(self):
-        """
-        Returns all attributes defined on the object.
-        """
-        logger.log_depmsg("obj.get_all_attributes() is deprecated. Use obj.db.all() or obj.attributes.all().")
-        return _GA(self, "attributes").all()
-
-    def attr(self, attribute_name=None, value=None, delete=False):
-        """
-        This is a convenient wrapper for
-        get_attribute, set_attribute, del_attribute
-        and get_all_attributes.
-        If value is None, attr will act like
-        a getter, otherwise as a setter.
-        set delete=True to delete the named attribute.
-
-        Note that you cannot set the attribute
-        value to None using this method. Use set_attribute.
-        """
-        logger.log_depmsg("obj.attr() is deprecated. Use handlers obj.db or obj.attributes.")
-        if attribute_name is None:
-            # act as a list method
-            return _GA(self, "attributes").all()
-        elif delete is True:
-            _GA(self, "attributes").remove(attribute_name)
-        elif value is None:
-            # act as a getter.
-            return _GA(self, "attributes").get(attribute_name)
-        else:
-            # act as a setter
-            self._GA(self, "attributes").add(attribute_name, value)
-
-    def secure_attr(self, accessing_object, attribute_name=None, value=None, delete=False,
-                    default_access_read=True, default_access_edit=True, default_access_create=True):
-        """
-        This is a version of attr that requires the accessing object
-        as input and will use that to check eventual access locks on
-        the Attribute before allowing any changes or reads.
-
-        In the cases when this method wouldn't return, it will return
-        True for a successful operation, None otherwise.
-
-        locktypes checked on the Attribute itself:
-            attrread - control access to reading the attribute value
-            attredit - control edit/delete access
-        locktype checked on the object on which the Attribute is/will be stored:
-            attrcreate - control attribute create access (this is checked *on the object*  not on the Attribute!)
-
-        default_access_* defines which access is assumed if no
-        suitable lock is defined on the Atttribute.
-
-        """
-        logger.log_depmsg("obj.secure_attr() is deprecated. Use obj.attributes methods, giving accessing_obj keyword.")
-        if attribute_name is None:
-            return _GA(self, "attributes").all(accessing_obj=accessing_object, default_access=default_access_read)
-        elif delete is True:
-            # act as deleter
-            _GA(self, "attributes").remove(attribute_name, accessing_obj=accessing_object, default_access=default_access_edit)
-        elif value is None:
-            # act as getter
-            return _GA(self, "attributes").get(attribute_name, accessing_obj=accessing_object, default_access=default_access_read)
-        else:
-            # act as setter
-            attr = _GA(self, "attributes").get(attribute_name, return_obj=True)
-            if attr:
-               # attribute already exists
-                _GA(self, "attributes").add(attribute_name, value, accessing_obj=accessing_object, default_access=default_access_edit)
-            else:
-                # creating a new attribute - check access on storing object!
-                _GA(self, "attributes").add(attribute_name, value, accessing_obj=accessing_object, default_access=default_access_create)
-
-    def nattr(self, attribute_name=None, value=None, delete=False):
-        """
-        This allows for assigning non-persistent data on the object using
-        a method call. Will return None if trying to access a non-existing property.
-        """
-        logger.log_depmsg("obj.nattr() is deprecated. Use obj.nattributes instead.")
-        if attribute_name is None:
-            # act as a list method
-            if callable(self.ndb.all):
-                return self.ndb.all()
-            else:
-                return [val for val in self.ndb.__dict__.keys()
-                        if not val.startswith['_']]
-        elif delete is True:
-            if hasattr(self.ndb, attribute_name):
-                _DA(_GA(self, "ndb"), attribute_name)
-        elif value is None:
-            # act as a getter.
-            if hasattr(self.ndb, attribute_name):
-                _GA(_GA(self, "ndb"), attribute_name)
-            else:
-                return None
-        else:
-            # act as a setter
-            _SA(self.ndb, attribute_name, value)
-
-
+#    #
+#    # ***** DEPRECATED METHODS BELOW   *******
+#    #
+#
+#    #
+#    # Full attr_obj attributes. You usually access these
+#    # through the obj.db.attrname method.
+#
+#    # Helper methods for attr_obj attributes
+#
+#    def has_attribute(self, attribute_name):
+#        """
+#        See if we have an attribute set on the object.
+#
+#        attribute_name: (str) The attribute's name.
+#        """
+#        logger.log_depmsg("obj.has_attribute() is deprecated. Use obj.attributes.has().")
+#        return _GA(self, "attributes").has(attribute_name)
+#
+#    def set_attribute(self, attribute_name, new_value=None, lockstring=""):
+#        """
+#        Sets an attribute on an object. Creates the attribute if need
+#        be.
+#
+#        attribute_name: (str) The attribute's name.
+#        new_value: (python obj) The value to set the attribute to. If this is not
+#                                a str, the object will be stored as a pickle.
+#        lockstring - this sets an access restriction on the attribute object. Note that
+#                     this is normally NOT checked - use the secureattr() access method
+#                     below to perform access-checked modification of attributes. Lock
+#                     types checked by secureattr are 'attrread','attredit','attrcreate'.
+#        """
+#        logger.log_depmsg("obj.set_attribute() is deprecated. Use obj.db.attr=value or obj.attributes.add().")
+#        _GA(self, "attributes").add(attribute_name, new_value, lockstring=lockstring)
+#
+#    def get_attribute_obj(self, attribute_name, default=None):
+#        """
+#        Get the actual attribute object named attribute_name
+#        """
+#        logger.log_depmsg("obj.get_attribute_obj() is deprecated. Use obj.attributes.get(..., return_obj=True)")
+#        return _GA(self, "attributes").get(attribute_name, default=default, return_obj=True)
+#
+#    def get_attribute(self, attribute_name, default=None, raise_exception=False):
+#        """
+#        Returns the value of an attribute on an object. You may need to
+#        type cast the returned value from this function since the attribute
+#        can be of any type. Returns default if no match is found.
+#
+#        attribute_name: (str) The attribute's name.
+#        default: What to return if no attribute is found
+#        raise_exception (bool) - raise an exception if no object exists instead of returning default.
+#        """
+#        logger.log_depmsg("obj.get_attribute() is deprecated. Use obj.db.attr or obj.attributes.get().")
+#        return _GA(self, "attributes").get(attribute_name, default=default, raise_exception=raise_exception)
+#
+#    def del_attribute(self, attribute_name, raise_exception=False):
+#        """
+#        Removes an attribute entirely.
+#
+#        attribute_name: (str) The attribute's name.
+#        raise_exception (bool) - raise exception if attribute to delete
+#                                 could not be found
+#        """
+#        logger.log_depmsg("obj.del_attribute() is deprecated. Use del obj.db.attr or obj.attributes.remove().")
+#        _GA(self, "attributes").remove(attribute_name, raise_exception=raise_exception)
+#
+#    def get_all_attributes(self):
+#        """
+#        Returns all attributes defined on the object.
+#        """
+#        logger.log_depmsg("obj.get_all_attributes() is deprecated. Use obj.db.all() or obj.attributes.all().")
+#        return _GA(self, "attributes").all()
+#
+#    def attr(self, attribute_name=None, value=None, delete=False):
+#        """
+#        This is a convenient wrapper for
+#        get_attribute, set_attribute, del_attribute
+#        and get_all_attributes.
+#        If value is None, attr will act like
+#        a getter, otherwise as a setter.
+#        set delete=True to delete the named attribute.
+#
+#        Note that you cannot set the attribute
+#        value to None using this method. Use set_attribute.
+#        """
+#        logger.log_depmsg("obj.attr() is deprecated. Use handlers obj.db or obj.attributes.")
+#        if attribute_name is None:
+#            # act as a list method
+#            return _GA(self, "attributes").all()
+#        elif delete is True:
+#            _GA(self, "attributes").remove(attribute_name)
+#        elif value is None:
+#            # act as a getter.
+#            return _GA(self, "attributes").get(attribute_name)
+#        else:
+#            # act as a setter
+#            self._GA(self, "attributes").add(attribute_name, value)
+#
+#    def secure_attr(self, accessing_object, attribute_name=None, value=None, delete=False,
+#                    default_access_read=True, default_access_edit=True, default_access_create=True):
+#        """
+#        This is a version of attr that requires the accessing object
+#        as input and will use that to check eventual access locks on
+#        the Attribute before allowing any changes or reads.
+#
+#        In the cases when this method wouldn't return, it will return
+#        True for a successful operation, None otherwise.
+#
+#        locktypes checked on the Attribute itself:
+#            attrread - control access to reading the attribute value
+#            attredit - control edit/delete access
+#        locktype checked on the object on which the Attribute is/will be stored:
+#            attrcreate - control attribute create access (this is checked *on the object*  not on the Attribute!)
+#
+#        default_access_* defines which access is assumed if no
+#        suitable lock is defined on the Atttribute.
+#
+#        """
+#        logger.log_depmsg("obj.secure_attr() is deprecated. Use obj.attributes methods, giving accessing_obj keyword.")
+#        if attribute_name is None:
+#            return _GA(self, "attributes").all(accessing_obj=accessing_object, default_access=default_access_read)
+#        elif delete is True:
+#            # act as deleter
+#            _GA(self, "attributes").remove(attribute_name, accessing_obj=accessing_object, default_access=default_access_edit)
+#        elif value is None:
+#            # act as getter
+#            return _GA(self, "attributes").get(attribute_name, accessing_obj=accessing_object, default_access=default_access_read)
+#        else:
+#            # act as setter
+#            attr = _GA(self, "attributes").get(attribute_name, return_obj=True)
+#            if attr:
+#               # attribute already exists
+#                _GA(self, "attributes").add(attribute_name, value, accessing_obj=accessing_object, default_access=default_access_edit)
+#            else:
+#                # creating a new attribute - check access on storing object!
+#                _GA(self, "attributes").add(attribute_name, value, accessing_obj=accessing_object, default_access=default_access_create)
+#
+#    def nattr(self, attribute_name=None, value=None, delete=False):
+#        """
+#        This allows for assigning non-persistent data on the object using
+#        a method call. Will return None if trying to access a non-existing property.
+#        """
+#        logger.log_depmsg("obj.nattr() is deprecated. Use obj.nattributes instead.")
+#        if attribute_name is None:
+#            # act as a list method
+#            if callable(self.ndb.all):
+#                return self.ndb.all()
+#            else:
+#                return [val for val in self.ndb.__dict__.keys()
+#                        if not val.startswith['_']]
+#        elif delete is True:
+#            if hasattr(self.ndb, attribute_name):
+#                _DA(_GA(self, "ndb"), attribute_name)
+#        elif value is None:
+#            # act as a getter.
+#            if hasattr(self.ndb, attribute_name):
+#                _GA(_GA(self, "ndb"), attribute_name)
+#            else:
+#                return None
+#        else:
+#            # act as a setter
+#            _SA(self.ndb, attribute_name, value)
+#
+#
 
