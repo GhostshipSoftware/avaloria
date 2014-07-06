@@ -1,6 +1,6 @@
 #Avaloria Tutorial World build file
 #
-@dig Dimly Lit Chamber;tutorial;tutorial1;tutorial_room;tutorial_quest_item_spawn : world.rooms.DungeonRoom
+@dig Dimly Lit Chamber;tutorial;tutorial1;tutorial_room;tutorial_quest_item_spawn : world.rooms.WorldRoom
 #
 @teleport tutorial1
 #
@@ -23,7 +23,7 @@ HINT: Use the talk command, type: help talk  to find out more.
 #
 @set here/cell_number = A0
 #
-@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.rooms.DungeonRoom
+@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.roomsWorldRoom
 #
 @tag Damp Chamber = tutorial2
 #
@@ -43,7 +43,7 @@ yet to be seen.
 #
 @set here/cell_number = A1
 #
-@dig Well Lit Chamber;tutorial;tutorial3;tutorial_room;tutorial_enemy_npc_spawn : world.rooms.DungeonRoom
+@dig Well Lit Chamber;tutorial;tutorial3;tutorial_room;tutorial_enemy_npc_spawn : world.rooms.WorldRoom
 #
 @open well lit chamber = tutorial3
 #
@@ -62,7 +62,7 @@ combatants from escaping.
 #
 @set here/cell_number = A3
 #
-@create/drop Lair Portal;portal;:world.rooms.PlayerLairEnterance
+@open Marshlands = marshlands1 
 #
 @lock Lair Portal = view:completed_quest(Battle On!)
 #
