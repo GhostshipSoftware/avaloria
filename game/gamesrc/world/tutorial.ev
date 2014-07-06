@@ -1,0 +1,69 @@
+#Avaloria Tutorial World build file
+#
+@dig Dimly Lit Chamber;tutorial;tutorial1;tutorial_room;tutorial_quest_item_spawn : world.rooms.DungeonRoom
+#
+@teleport tutorial1
+#
+@tag Dimly List Chamber = tutorial1
+#
+@desc 
+As you step into this room from the portal, you notice it is dimly lit, sparsly decorated and
+quite barren.  In the middle of the room sits a large altar lined by large man sized candles.
+Right as you take all of this in, there is a crackle of energy near the altar.  As you squint
+your eyes, you can make our a figure kneeling near the altar.  Listening closely, you can hear
+what sounds like praying.
+
+As you shift your weight to begin walking, the figure jumps up and is in front of you in a blur
+of rapid motion.  It is a striking young woman who says, "So, you have come to learn from me young
+one?".
+
+"That is well and fine then.  Learn you shall.  Speak to me to find out more".
+
+HINT: Use the talk command, type: help talk  to find out more.
+#
+@set here/cell_number = A0
+#
+@dig Damp Chamber;tutorial;tutorial2;tutorial_room;tutorial_quest_item_spawn : world.rooms.DungeonRoom
+#
+@tag Damp Chamber = tutorial2
+#
+@open damp chamber = tutorial2
+#
+@lock damp chamber = view:completed_quest(Learning New Skills)
+#
+damp chamber
+#
+@desc 
+The smell of mold and mildew hangs heavily in the air here. You find it difficult to breath the
+moist stale air and resort to quick, shallow breathing.  While the air feels like it hasn't moved
+in ages, there is ample light provided by torces around the perimeter of this oval shaped room.
+
+In the center of the room is a large table and many seats.  At the head of the table sits a figure
+yet to be seen.
+#
+@set here/cell_number = A1
+#
+@dig Well Lit Chamber;tutorial;tutorial3;tutorial_room;tutorial_enemy_npc_spawn : world.rooms.DungeonRoom
+#
+@open well lit chamber = tutorial3
+#
+@lock well lit chamber = view:completed_quest(Learning Spells)
+#
+well lit chamber
+#
+@tag Well Lit Chamber = tutorial3
+#
+@desc
+This is another oval shaped, though this one has very large, expensive looking chandeliers hanging
+from the ceiling providing an ample supply of light.  The entire room is illuminated and you can
+see a pit in the middle of the room.  Peering down into the pit, you can see it that it is some sort
+of combat arena, simply made with a dirt floor and accompanying ten foot tall walls to keep the
+combatants from escaping.
+#
+@set here/cell_number = A3
+#
+@create/drop Lair Portal;portal;:world.rooms.PlayerLairEnterance
+#
+@lock Lair Portal = view:completed_quest(Battle On!)
+#
+@teleport limbo
