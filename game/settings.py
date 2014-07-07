@@ -16,7 +16,6 @@ from src.settings_default import *
 ######################################################################
 # Custom settings
 ######################################################################
-BASE_CHARACTER_TYPECLASS = "game.gamesrc.objects.world.character.Hero"
 
 
 ######################################################################
@@ -24,5 +23,5 @@ BASE_CHARACTER_TYPECLASS = "game.gamesrc.objects.world.character.Hero"
 # Don't share this with anybody. It is used by Evennia to handle
 # cryptographic hashing for things like cookies on the web side.
 ######################################################################
-SECRET_KEY = 'E~joi"k[8-_abX(e#5;>7AVDJ`|QLTpc$OI9du2n'
+SECRET_KEY = 'M~ot@$&*u[legiBsk,V6a)j.U#}L<AX"ch94Y0pT'
 
