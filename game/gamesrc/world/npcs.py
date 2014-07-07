@@ -1,5 +1,6 @@
+#CODE
 storage = objects.search("Limbo")[0]
-tut_enemynpc = create.create_object("game.gamesrc.objects.world.npc.EnemyNpc", key="Battle Dummy", location=tutorial3)
+tut_enemynpc = create.create_object("game.gamesrc.objects.world.npc.Npc", key="Battle Dummy", location=tutorial3)
 desc = "What seems to be an animated..scarecrow...thing.  \"Mmph...mppphhnnmm\" is the only sounds it seems capable of making.\n"
 desc += "In its hand materializes a magically summoned hammer and shield."
 tut_enemynpc.db.desc = desc

@@ -332,10 +332,10 @@ class BatchCodeProcessor(object):
             "Map replace entries"
             return "\#\n".join(self.parse_file(match.group()))
 
-        text = RE_INSERT.sub(replace_insert, text)
-        #text = re.sub(r"^\#INSERT (.*?)", replace_insert, text, flags=re.MULTILINE)
-        blocks = RE_CODE_SPLIT(text)
-        #blocks = re.split(r"(^\#CODE.*?$|^\#HEADER)$", text, flags=re.MULTILINE)
+        #text = RE_INSERT.sub(replace_insert, text)
+        text = re.sub(r"^\#INSERT (.*?)", replace_insert, text, flags=re.MULTILINE)
+        #blocks = RE_CODE_SPLIT.findall(text)
+        blocks = re.split(r"(^\#CODE.*?$|^\#HEADER)$", text, flags=re.MULTILINE)
         headers = []
         codes = [] # list of tuples (code, info, objtuple)
         if blocks:
