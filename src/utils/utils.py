@@ -274,6 +274,9 @@ def datetime_format(dtobj):
 def host_os_is(osname):
     """
     Check to see if the host OS matches the query.
+    Common osnames are
+      posix
+      nt
     """
     if os.name == osname:
         return True
@@ -626,13 +629,10 @@ def check_evennia_dependencies():
     Returns False if a show-stopping version mismatch is found.
     """
     # defining the requirements
-    python_min = '2.6'
-    nt_python_min = '2.7'
-    nt_stop_python_min = "2.6"
-    twisted_min = '11.0'
-    django_min = '1.5'
-    django_rec = '1.6'
-    south_min = '0.8.4'
+    python_min = '2.7'
+    twisted_min = '12.0'
+    django_min = '1.7'
+    django_rec = '1.7'
 
     errstring = ""
     no_error = True
@@ -640,11 +640,8 @@ def check_evennia_dependencies():
     # Python
     pversion = ".".join(str(num) for num in sys.version_info if type(num) == int)
     if pversion < python_min:
-        errstring += "\n WARNING: Python %s used. Evennia recommends version %s or higher (but not 3.x)." % (pversion, python_min)
-    if os.name == 'nt' and pversion < nt_python_min:
-        errstring += "\n WARNING: Python %s used. Windows requires v%s or higher in order to" % (pversion, nt_stop_python_min)
-        errstring += "\n          restart/stop the server from the command line (Under v%s you" % pversion
-        errstring += "\n          may only restart/stop from inside the game.)"
+        errstring += "\n ERROR: Python %s used. Evennia requires version %s or higher (but not 3.x)." % (pversion, python_min)
+        no_error = False
     # Twisted
     try:
         import twisted
@@ -665,22 +662,14 @@ def check_evennia_dependencies():
         elif django_min <= dversion < django_rec:
             errstring += "\n NOTE: Django %s found. This will work, but v%s is recommended for production." % (dversion, django_rec)
         elif django_rec < dversion_main:
-            errstring += "\n NOTE: Django %s found. This is newer than Evennia's recommended version. It will"
-            errstring += "\n       probably work, but may be new enough not to be fully tested yet. Report any issues."
+            errstring += "\n NOTE: Django %s found. This is newer than Evennia's recommended version (v%s). It will"
+            errstring += "\n       probably work, but may be new enough not to be fully tested yet. Report any issues." % (dversion, django_rec)
     except ImportError:
         errstring += "\n ERROR: Django does not seem to be installed."
         no_error = False
     # South
-    try:
-        import south
-        sversion = south.__version__
-        if sversion < south_min:
-            errstring += "\n WARNING: South %s found. Evennia recommends version %s or higher." % (sversion, south_min)
-        if sversion in ("0.8.2", "0.8.3"):
-            errstring += "\n ERROR: South %s found. This has known issues. Please upgrade." % sversion
-            no_error = False
-    except ImportError:
-        errstring += "\n ERROR: South (django-south) does not seem to be installed."
+    if 'south' in settings.INSTALLED_APPS:
+        errstring += "\n ERROR: 'south' found in settings.INSTALLED_APPS. South is no longer used. If this was added manually, remove it."
         no_error = False
     # IRC support
     if settings.IRC_ENABLED:
@@ -844,23 +833,23 @@ def string_from_module(module, variable=None, default=None):
     """
     This is a wrapper for variable_from_module that requires return
     value to be a string to pass. It's primarily used by login screen.
+    if variable is not set, returns a list of all string variables in
+    module
     """
     val = variable_from_module(module, variable=variable, default=default)
-    if isinstance(val, basestring):
-        return val
-    elif is_iter(val):
-        result = [v for v in val if isinstance(v, basestring)]
-        return result if result else default
+    if val:
+        if variable:
+            return val
+        else:
+            result = [v for v in make_iter(val) if isinstance(v, basestring)]
+            return result if result else default
     return default
 
 def random_string_from_module(module):
     """
     Returns a random global string from a module
     """
-    string = string_from_module(module)
-    if is_iter(string):
-        string = random.choice(string)
-    return string
+    return random.choice(string_from_module(module))
 
 def init_new_player(player):
     """
@@ -1095,3 +1084,14 @@ class lazy_property(object):
             value = self.func(obj)
         obj.__dict__[self.__name__] = value
         return value
+
+_STRIP_ANSI = None
+_RE_CONTROL_CHAR = re.compile('[%s]' % re.escape(''.join([unichr(c) for c in range(0,32)])))# + range(127,160)])))
+def strip_control_sequences(string):
+    """
+    remove non-print text sequences from string.
+    """
+    global _STRIP_ANSI
+    if not _STRIP_ANSI:
+        from src.utils.ansi import strip_raw_ansi as _STRIP_ANSI
+    return _RE_CONTROL_CHAR.sub('', _STRIP_ANSI(string))

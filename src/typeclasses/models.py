@@ -463,11 +463,12 @@ class AttributeHandler(object):
         """
         if self._cache is None or not _TYPECLASS_AGGRESSIVE_CACHE:
             self._recache()
+        attrs = sorted(self._cache.values(), key=lambda o: o.id)
         if accessing_obj:
-            return [attr for attr in self._cache.values()
+            return [attr for attr in attrs
                     if attr.access(accessing_obj, self._attredit, default=default_access)]
         else:
-            return self._cache.values()
+            return attrs
 
 
 class NickHandler(AttributeHandler):
@@ -516,7 +517,7 @@ class NickHandler(AttributeHandler):
 class NAttributeHandler(object):
     """
     This stand-alone handler manages non-database saving.
-    It is consistent with AttributeHandler and is used
+    It is similar to AttributeHandler and is used
     by the .ndb handler in the same way as .db does
     for the AttributeHandler.
     """
@@ -543,6 +544,10 @@ class NAttributeHandler(object):
         if key in self._store:
             del self._store[key]
         self.obj.set_recache_protection(self._store)
+
+    def clear(self):
+        "Remove all nattributes from handler"
+        self._store = {}
 
     def all(self, return_tuples=False):
         "List all keys or (keys, values) stored, except _keys"
@@ -687,8 +692,7 @@ class TagHandler(object):
 
     def clear(self):
         "Remove all tags from the handler"
-        for tag in getattr(self.obj, self._m2m_fieldname).filter(db_model=self._model, db_tagtype=self._tagtype):
-            getattr(self.obj, self._m2m_fieldname).remove(tag)
+        getattr(self.obj, self._m2m_fieldname).clear()
         self._recache()
 
     def all(self, category=None, return_key_and_category=False):
@@ -706,6 +710,7 @@ class TagHandler(object):
             matches = self._cache.values()
 
         if matches:
+            matches = sorted(matches, key=lambda o: o.id)
             if return_key_and_category:
                 # return tuple (key, category)
                 return [(to_str(p.db_key), to_str(p.db_category)) for p in matches]
@@ -1203,16 +1208,14 @@ class TypedObject(SharedMemoryModel):
             # Clean out old attributes
             if is_iter(clean_attributes):
                 for attr in clean_attributes:
-                    self.attr(attr, delete=True)
+                    self.attributes.remove(attr)
                 for nattr in clean_attributes:
                     if hasattr(self.ndb, nattr):
-                        self.nattr(nattr, delete=True)
+                        self.nattributes.remove(nattr)
             else:
                 #print "deleting attrs ..."
-                for attr in self.get_all_attributes():
-                    attr.delete()
-                for nattr in self.ndb.all:
-                    del nattr
+                self.attributes.clear()
+                self.nattributes.clear()
 
         if run_start_hooks:
             # run hooks for this new typeclass

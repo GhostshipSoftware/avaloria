@@ -8,9 +8,9 @@ sessions etc.
 """
 
 import re
-from twisted.conch.telnet import Telnet, StatefulTelnetProtocol, IAC, LINEMODE
+from twisted.conch.telnet import Telnet, StatefulTelnetProtocol, IAC, LINEMODE, GA, WILL, WONT, ECHO
 from src.server.session import Session
-from src.server.portal import ttype, mssp, msdp
+from src.server.portal import ttype, mssp, msdp, naws
 from src.server.portal.mccp import Mccp, mccp_compress, MCCP
 from src.utils import utils, ansi, logger
 
@@ -31,7 +31,13 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
         # initialize the session
         self.iaw_mode = False
         client_address = self.transport.client
+        # this number is counted down for every handshake that completes.
+        # when it reaches 0 the portal/server syncs their data
+        self.handshakes = 5 # naws, ttype, mccp, mssp, msdp
         self.init_session("telnet", client_address, self.factory.sessionhandler)
+
+        # negotiate client size
+        self.naws = naws.Naws(self)
         # negotiate ttype (client info)
         # Obs: mudlet ttype does not seem to work if we start mccp before ttype. /Griatch
         self.ttype = ttype.Ttype(self)
@@ -43,27 +49,37 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
         self.msdp = msdp.Msdp(self)
         # add this new connection to sessionhandler so
         # the Server becomes aware of it.
+        self.sessionhandler.connect(self)
 
-        # This is a fix to make sure the connection does not
-        # continue until the handshakes are done. This is a
-        # dumb delay of 1 second. This solution is not ideal (and
-        # potentially buggy for slow connections?) but
-        # adding a callback chain to all protocols (and notably
-        # to their handshakes, which in some cases are multi-part)
-        # is not trivial. Without it, the protocol will default
-        # to their defaults since sessionhandler.connect will sync
-        # before the handshakes have had time to finish. Keeping this patch
-        # until coming up with a more elegant solution /Griatch
+        # timeout the handshakes in case the client doesn't reply at all
         from src.utils.utils import delay
-        delay(1, callback=self.sessionhandler.connect, retval=self)
-        #self.sessionhandler.connect(self)
+        delay(2, callback=self.handshake_done, retval=True)
+
+    def handshake_done(self, force=False):
+        """
+        This is called by all telnet extensions once they are finished.
+        When all have reported, a sync with the server is performed.
+        The system will force-call this sync after a small time to handle
+        clients that don't reply to handshakes at all.
+        info - debug text from the protocol calling
+        """
+        if self.handshakes > 0:
+            if force:
+                self.sessionhandler.sync(self)
+                return
+            self.handshakes -= 1
+            if self.handshakes <= 0:
+                # do the sync
+                self.sessionhandler.sync(self)
 
     def enableRemote(self, option):
         """
         This sets up the remote-activated options we allow for this protocol.
         """
+        pass
         return (option == LINEMODE or
                 option == ttype.TTYPE or
+                option == naws.NAWS or
                 option == MCCP or
                 option == mssp.MSSP)
 
@@ -71,12 +87,14 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
         """
         Call to allow the activation of options for this protocol
         """
-        return option == MCCP
+        return (option == MCCP or option==ECHO)
 
     def disableLocal(self, option):
         """
         Disable a given option
         """
+        if option == ECHO:
+            return True
         if option == MCCP:
             self.mccp.no_mccp(option)
             return True
@@ -188,7 +206,9 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
             raw=True - pass string through without any ansi
                        processing (i.e. include Evennia ansi markers but do
                        not convert them into ansi tokens)
-
+            prompt=<string> - supply a prompt text which gets sent without a
+                              newline added to the end
+            echo=True/False
         The telnet ttype negotiation flags, if any, are used if no kwargs
         are given.
         """
@@ -208,18 +228,32 @@ class TelnetProtocol(Telnet, StatefulTelnetProtocol, Session):
 
         # parse **kwargs, falling back to ttype if nothing is given explicitly
         ttype = self.protocol_flags.get('TTYPE', {})
-        xterm256 = kwargs.get("xterm256", ttype and ttype.get('256 COLORS', False))
-        useansi = kwargs.get("ansi", ttype and ttype.get('ANSI', False))
+        xterm256 = kwargs.get("xterm256", ttype.get('256 COLORS', False) if ttype.get("init_done") else True)
+        useansi = kwargs.get("ansi", ttype and ttype.get('ANSI', False) if ttype.get("init_done") else True)
         raw = kwargs.get("raw", False)
-        nomarkup = kwargs.get("nomarkup", not (xterm256 or useansi) or not ttype.get("init_done"))
+        nomarkup = kwargs.get("nomarkup", not (xterm256 or useansi))
+        prompt = kwargs.get("prompt")
+        echo = kwargs.get("echo", None)
 
         #print "telnet kwargs=%s, message=%s" % (kwargs, text)
         #print "xterm256=%s, useansi=%s, raw=%s, nomarkup=%s, init_done=%s" % (xterm256, useansi, raw, nomarkup, ttype.get("init_done"))
         if raw:
             # no processing whatsoever
             self.sendLine(text)
-        else:
+        elif text:
             # we need to make sure to kill the color at the end in order
             # to match the webclient output.
-            # print "telnet data out:", self.protocol_flags, id(self.protocol_flags), id(self)
+            #print "telnet data out:", self.protocol_flags, id(self.protocol_flags), id(self), "nomarkup: %s, xterm256: %s" % (nomarkup, xterm256)
             self.sendLine(ansi.parse_ansi(_RE_N.sub("", text) + "{n", strip_ansi=nomarkup, xterm256=xterm256))
+
+        if prompt:
+            # Send prompt separately
+            prompt = ansi.parse_ansi(_RE_N.sub("", prompt) + "{n", strip_ansi=nomarkup, xterm256=xterm256)
+            prompt = prompt.replace(IAC, IAC + IAC).replace('\n', '\r\n')
+            prompt += IAC + GA
+            self.transport.write(mccp_compress(self, prompt))
+        if echo:
+            self.transport.write(mccp_compress(self, IAC+WONT+ECHO))
+        elif echo == False:
+            self.transport.write(mccp_compress(self, IAC+WILL+ECHO))
+

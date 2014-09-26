@@ -39,7 +39,6 @@ class CmdHome(MuxCommand):
             caller.move_to(home)
             caller.msg("There's no place like home ...")
 
-
 class CmdLook(MuxCommand):
     """
     look at location or object
@@ -62,7 +61,6 @@ class CmdLook(MuxCommand):
         """
         caller = self.caller
         args = self.args
-
         if args:
             # Use search to handle duplicate/nonexistant results.
             looking_at_obj = caller.search(args, use_nicks=True)
@@ -329,8 +327,8 @@ class CmdGive(MuxCommand):
             caller.msg("You are not holding %s." % to_give.key)
             return
         # give object
-        to_give.location = target
         caller.msg("You give %s to %s." % (to_give.key, target.key))
+        to_give.move_to(target, quiet=True)
         target.msg("%s gives you %s." % (caller.key, to_give.key))
 
 
@@ -366,7 +364,7 @@ class CmdSay(MuxCommand):
         caller.msg('You say, "%s{n"' % speech)
 
         # Build the string to emit to neighbors.
-        emit_string = '{c%s{n says, "%s{n"' % (caller.name,
+        emit_string = '%s says, "%s{n"' % (caller.name,
                                                speech)
         caller.location.msg_contents(emit_string,
                                      exclude=caller)

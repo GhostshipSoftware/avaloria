@@ -54,6 +54,7 @@ class Ttype(object):
         Callback if ttype is not supported by client.
         """
         self.protocol.protocol_flags['TTYPE']["init_done"] = True
+        self.protocol.handshake_done()
 
     def will_ttype(self, option):
         """
@@ -101,7 +102,8 @@ class Ttype(object):
                                            "KILDCLIENT",    # > 2.2.0 (sep 2005)
                                            "MUDLET",        # > beta 15 (sep 2009)
                                            "MUSHCLIENT",    # > 4.02 (apr 2007)
-                                           "PUTTY"))        # > 0.58 (apr 2005)
+                                           "PUTTY",         # > 0.58 (apr 2005)
+                                           "BEIP"))         # > 2.00.206 (late 2009) (BeipMu)
 
             # all clients supporting TTYPE at all seem to support ANSI
             self.protocol.protocol_flags['TTYPE']['ANSI'] = True
@@ -138,4 +140,6 @@ class Ttype(object):
 
             self.protocol.protocol_flags['TTYPE']['init_done'] = True
             # print "TTYPE final:", self.protocol.protocol_flags['TTYPE']
+            # we must sync ttype once it'd done
+            self.protocol.handshake_done()
         self.ttype_step += 1

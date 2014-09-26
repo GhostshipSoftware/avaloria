@@ -101,7 +101,7 @@ class Object(TypeClass):
                 attribute_name=None, use_nicks=True, location=None,
                 quiet=False, exact=False)
          execute_cmd(raw_string)
-         msg(message, **kwargs)
+         msg(text=None, from_obj=None, sessid=0, **kwargs)
          msg_contents(message, exclude=None, from_obj=None, **kwargs)
          move_to(destination, quiet=False, emit_to_obj=None,
                  use_destination=True, to_none=False)
@@ -129,8 +129,9 @@ class Object(TypeClass):
 
          at_init()            called whenever typeclass is cached from
                               memory, at least once every server restart/reload
-         at_cmdset_get()      - this is called just before the command
-                                handler requests a cmdset from this objecth
+         at_cmdset_get(**kwargs) - this is called just before the command
+                                handler requests a cmdset from this object, usually
+                                without any kwargs
          at_pre_puppet(player)- (player-controlled objects only) called just
                                  before puppeting
          at_post_puppet()     - (player-controlled objects only) called just
@@ -300,7 +301,7 @@ class Object(TypeClass):
                 return self.player
         return self.dbobj.search_player(searchdata, quiet=quiet)
 
-    def execute_cmd(self, raw_string, sessid=None):
+    def execute_cmd(self, raw_string, sessid=None, **kwargs):
         """
         Do something as this object. This command transparently
         lets its typeclass execute the command. This method is
@@ -311,6 +312,10 @@ class Object(TypeClass):
         raw_string (string) - raw command input
         sessid (int) - id of session executing the command. This sets the
                      sessid property on the command.
+        **kwargs - other keyword arguments will be added to the found command
+                   object instace as variables before it executes. This is
+                   unused by default Evennia but may be used to set flags and
+                   change operating paramaters for commands at run-time.
 
         Returns Deferred - this is an asynchronous Twisted object that will
             not fire until the command has actually finished executing. To
@@ -322,7 +327,7 @@ class Object(TypeClass):
             useful for coders intending to implement some sort of nested
             command structure.
         """
-        return self.dbobj.execute_cmd(raw_string, sessid=sessid)
+        return self.dbobj.execute_cmd(raw_string, sessid=sessid, **kwargs)
 
     def msg(self, text=None, from_obj=None, sessid=None, **kwargs):
         """
@@ -336,7 +341,7 @@ class Object(TypeClass):
                 default to self.sessid or from_obj.sessid.
         """
 
-        self.dbobj.msg(text=text, **kwargs)
+        self.dbobj.msg(text=text, from_obj=from_obj, sessid=sessid, **kwargs)
 
     def msg_contents(self, text=None, exclude=None, from_obj=None, **kwargs):
         """
@@ -572,12 +577,15 @@ class Object(TypeClass):
         pass
 
 
-    def at_cmdset_get(self):
+    def at_cmdset_get(self, **kwargs):
         """
         Called just before cmdsets on this object are requested by the
-        command handler. If changes need to be done on the fly to the cmdset
-        before passing them on to the cmdhandler, this is the place to do it.
-        This is called also if the object currently have no cmdsets.
+        command handler. If changes need to be done on the fly to the
+        cmdset before passing them on to the cmdhandler, this is the
+        place to do it.  This is called also if the object currently
+        have no cmdsets.  **kwargs are usually not set but could be
+        used e.g. to force rebuilding of a dynamically created cmdset
+        or similar.
         """
         pass
 
@@ -725,7 +733,7 @@ class Object(TypeClass):
         Called after move has completed, regardless of quiet mode or not.
         Allows changes to the object due to the location it is now in.
 
-        source_location - where we came from
+        source_location - where we came from. This may be None.
         """
         pass
 
@@ -1076,17 +1084,19 @@ class Exit(Object):
         if self.dbobj.location:
             self.destination = self.dbobj.location
 
-    def at_cmdset_get(self):
+    def at_cmdset_get(self, **kwargs):
         """
         Called when the cmdset is requested from this object, just before the
         cmdset is actually extracted. If no Exit-cmdset is cached, create
         it now.
+
+        kwargs:
+          force_init=True - force a re-build of the cmdset (for example to update aliases)
         """
 
-        if self.ndb.exit_reset or not self.cmdset.has_cmdset("_exitset", must_be_default=True):
+        if "force_init" in kwargs or not self.cmdset.has_cmdset("_exitset", must_be_default=True):
             # we are resetting, or no exit-cmdset was set. Create one dynamically.
             self.cmdset.add_default(self.create_exit_cmdset(self.dbobj), permanent=False)
-            del self.ndb.exit_reset
 
     # this and other hooks are what usually can be modified safely.
 

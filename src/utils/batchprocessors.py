@@ -177,7 +177,7 @@ from src.utils import utils
 ENCODINGS = settings.ENCODINGS
 CODE_INFO_HEADER = re.compile(r"\(.*?\)")
 
-RE_INSERT = re.compile(r"^\#INSERT (.*?)", re.MULTILINE)
+RE_INSERT = re.compile(r"^\#INSERT (.*)", re.MULTILINE)
 RE_CLEANBLOCK = re.compile(r"^\#.*?$|^\s*$", re.MULTILINE)
 RE_CMD_SPLIT = re.compile(r"^\#.*?$", re.MULTILINE)
 RE_CODE_SPLIT = re.compile(r"(^\#CODE.*?$|^\#HEADER)$", re.MULTILINE)
@@ -268,7 +268,7 @@ class BatchCommandProcessor(object):
 
         def replace_insert(match):
             "Map replace entries"
-            return "\#\n".join(self.parse_file(match.group()))
+            return "\#\n".join(self.parse_file(match.group(1)))
 
         # insert commands from inserted files
         text = RE_INSERT.sub(replace_insert, text)
@@ -330,12 +330,12 @@ class BatchCodeProcessor(object):
 
         def replace_insert(match):
             "Map replace entries"
-            return "\#\n".join(self.parse_file(match.group()))
+            return "\#\n".join(self.parse_file(match.group(1)))
 
-        #text = RE_INSERT.sub(replace_insert, text)
-        text = re.sub(r"^\#INSERT (.*?)", replace_insert, text, flags=re.MULTILINE)
-        #blocks = RE_CODE_SPLIT.findall(text)
-        blocks = re.split(r"(^\#CODE.*?$|^\#HEADER)$", text, flags=re.MULTILINE)
+        text = RE_INSERT.sub(replace_insert, text)
+        #text = re.sub(r"^\#INSERT (.*?)", replace_insert, text, flags=re.MULTILINE)
+        blocks = RE_CODE_SPLIT.split(text)
+        #blocks = re.split(r"(^\#CODE.*?$|^\#HEADER)$", text, flags=re.MULTILINE)
         headers = []
         codes = [] # list of tuples (code, info, objtuple)
         if blocks:

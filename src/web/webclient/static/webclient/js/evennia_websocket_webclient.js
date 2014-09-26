@@ -75,7 +75,7 @@ function onOpen(evt) {
     doShow("sys", "Using websockets - connected to " + wsurl + ".")
 
     setTimeout(function () {
-        $("#playercount").fadeOut('slow', doSetSizes);
+        $("#numplayers").fadeOut('slow', doSetSizes);
     }, 10000);
 }
 
@@ -106,6 +106,11 @@ function onMessage(evt) {
             }
         }
     }
+    else if (inmsg.length >= 6 && inmsg.substr(0, 6) == "PROMPT") {
+        // handle prompt
+        var game_prompt = inmsg.slice(6);
+        doPrompt("prompt", game_prompt);
+    }
     else {
         // normal message
         doShow('out', inmsg); }
@@ -113,7 +118,7 @@ function onMessage(evt) {
 
 function onError(evt) {
     // called on a server error
-    doShow('err', "Error: Server returned an error. Try reloading the page.");
+    doShow('err', "Connection error trying to access websocket on " + wsurl + ". " + "Contact the admin and/or check settings.WEBSOCKET_CLIENT_URL.");
 }
 
 function doSend(){
@@ -172,6 +177,11 @@ function doShow(type, msg){
     $('#messagewindow').animate({scrollTop: $('#messagewindow')[0].scrollHeight});
 }
 
+function doPrompt(type, msg){
+    // Display prompt
+    $('#prompt').replaceWith(
+            "<div id='prompt' class='msg "+ type +"'>" + msg + "</div>");
+}
 
 function doSetSizes() {
     // Sets the size of the message window
@@ -179,7 +189,6 @@ function doSetSizes() {
     //var win_w = $('#wrapper').width();
     var inp_h = $('#inputform').outerHeight(true);
     //var inp_w = $('#inputsend').outerWidth(true);
-
     $("#messagewindow").css({'height': win_h - inp_h - 1});
     //$("#inputfield").css({'width': win_w - inp_w - 20});
 }

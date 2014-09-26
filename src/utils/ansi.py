@@ -334,6 +334,13 @@ def parse_ansi(string, strip_ansi=False, parser=ANSI_PARSER, xterm256=False):
     return parser.parse_ansi(string, strip_ansi=strip_ansi, xterm256=xterm256)
 
 
+def strip_raw_ansi(string, parser=ANSI_PARSER):
+    """
+    Remove raw ansi codes from string
+    """
+    return parser.strip_raw_codes(string)
+
+
 def raw(string):
     """
     Escapes a string into a form which won't be colorized by the ansi parser.
@@ -356,7 +363,7 @@ def _spacing_preflight(func):
     def wrapped(self, width, fillchar=None):
         if fillchar is None:
             fillchar = " "
-        if (len(fillchar) != 1) or (not isinstance(fillchar, str)):
+        if (len(fillchar) != 1) or (not isinstance(fillchar, basestring)):
             raise TypeError("must be char, not %s" % type(fillchar))
         if not isinstance(width, int):
             raise TypeError("integer argument expected, got %s" % type(width))

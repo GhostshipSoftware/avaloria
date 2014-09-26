@@ -14,6 +14,13 @@ Features of the editor:
  search&replace text anywhere in buffer
  formatting of buffer, or selection, to certain width + indentations
  allow to echo the input or not depending on your client.
+
+
+Whereas the editor is intended to be called from other commands that
+requires more elaborate text editing of data, there is also a
+stand-alone editor command for editing Attributes at the end of this
+module. To use it just import and add it to your default cmdset.
+
 """
 
 import re
@@ -219,7 +226,7 @@ class CmdEditorGroup(CmdEditorBase):
             # quit. If not saved, will ask
             if self.editor.unsaved:
                 prompt_yesno(caller, "Save before quitting?",
-                             yescode = "self.caller.ndb._lineeditor.save_buffer(quitting=True)\nself.caller.ndb._lineeditor.quit()",
+                             yescode = "self.caller.ndb._lineeditor.save_buffer()\nself.caller.ndb._lineeditor.quit()",
                              nocode = "self.caller.msg(self.caller.ndb._lineeditor.quit())", default="Y")
             else:
                 string = editor.quit()
@@ -624,9 +631,9 @@ class CmdEditor(Command):
     Usage:
       @editor <obj>/<attr>
 
-    This will start Evennia's powerful line editor, which
-    has a host of commands on its own. Use :h for a list
-    of commands.
+    This will start Evennia's powerful line editor to edit an
+    Attribute. The editor has a host of commands on its own. Use :h
+    for a list of commands.
 
     """
 

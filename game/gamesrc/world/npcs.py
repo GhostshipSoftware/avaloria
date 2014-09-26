@@ -7,10 +7,8 @@ tut_enemynpc.db.desc = desc
 tut_enemynpc.db.actions = { 'taunt': "Mpphhgmm mph, hpmmhhhgn!", "mock": "Hmmgpf mmpphmmgjf" }
 tut_enemynpc.rating = 'hero'
 tut_enemynpc.db.attributes['level'] = 1
-tut_enemynpc.generate_stats()
-tut_enemynpc.generate_rewards()
-tut_enemynpc.update_stats()
-
+tut_enemynpc.generate_attributes()
+#CODE
 tutorial1_room = search.objects("tutorial1")[0]
 tutorial1_npc = create.create_object("game.gamesrc.objects.world.npc.Npc", key="Kayleigh", location=tutorial1_room)
 desc = "This striking woman is clearly far stronger than you and could probably kill you with a mere flick of her finger.\n"

@@ -153,8 +153,8 @@ class CmdDelCom(MuxPlayerCommand):
                 return
             chkey = channel.key.lower()
             # find all nicks linked to this channel and delete them
-            for nick in [nick for nick in caller.nicks.get(category="channel")
-                         if nick.strvalue.lower() == chkey]:
+            for nick in [nick for nick in make_iter(caller.nicks.get(category="channel", return_obj=True))
+                         if nick and nick.strvalue.lower() == chkey]:
                 nick.delete()
             disconnect = channel.disconnect(player)
             if disconnect:
@@ -229,7 +229,7 @@ class CmdAllCom(MuxPlayerCommand):
                 string += "No channels."
             for channel in channels:
                 string += "\n{w%s:{n\n" % channel.key
-                subs = channel.subscriptions.all()
+                subs = channel.db_subscriptions.all()
                 if subs:
                     string += "  " + ", ".join([player.key for player in subs])
                 else:
@@ -422,7 +422,7 @@ class CmdCemit(MuxPlayerCommand):
 
     key = "@cemit"
     aliases = ["@cmsg"]
-    locks = "cmd: not pperm(channel_banned)"
+    locks = "cmd: not pperm(channel_banned) and pperm(Players)"
     help_category = "Comms"
 
     def func(self):
@@ -498,7 +498,7 @@ class CmdChannelCreate(MuxPlayerCommand):
 
     key = "@ccreate"
     aliases = "channelcreate"
-    locks = "cmd:not pperm(channel_banned)"
+    locks = "cmd:not pperm(channel_banned) and pperm(Players)"
     help_category = "Comms"
 
     def func(self):
@@ -758,12 +758,13 @@ class CmdIRC2Chan(MuxCommand):
     Usage:
       @irc2chan[/switches] <evennia_channel> = <ircnetwork> <port> <#irchannel> <botname>
       @irc2chan/list
-      @irc2chan/delete botname|dbid
+      @irc2chan/delete botname|#dbid
 
     Switches:
-      /disconnect - this will delete the bot and remove the irc connection
+      /delete     - this will delete the bot and remove the irc connection
                     to the channel.
-      /remove     -                                 "
+      /remove     -        "
+      /disconnect -        "
       /list       - show all irc<->evennia mappings
 
     Example:
@@ -807,10 +808,11 @@ class CmdIRC2Chan(MuxCommand):
         if('disconnect' in self.switches or 'remove' in self.switches or
                                                     'delete' in self.switches):
             botname = "ircbot-%s" % self.lhs
-            matches = PlayerDB.objects.filter(db_is_bot=True, db_key=botname)
-            if not matches:
+            matches = PlayerDB.objects.filter(db_is_bot=True, username=botname)
+            dbref = utils.dbref(self.lhs)
+            if not matches and dbref:
                 # try dbref match
-                matches = PlayerDB.objects.filter(db_is_bot=True, id=self.args.lstrip("#"))
+                matches = PlayerDB.objects.filter(db_is_bot=True, id=dbref)
             if matches:
                 matches[0].delete()
                 self.msg("IRC connection destroyed.")

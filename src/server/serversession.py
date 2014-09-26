@@ -13,7 +13,7 @@ from django.conf import settings
 #from src.scripts.models import ScriptDB
 from src.comms.models import ChannelDB
 from src.utils import logger, utils
-from src.utils.utils import make_iter, to_unicode
+from src.utils.utils import make_iter
 from src.commands.cmdhandler import cmdhandler
 from src.commands.cmdsethandler import CmdSetHandler
 from src.server.session import Session
@@ -162,6 +162,17 @@ class ServerSession(Session):
                 pass
         logger.log_infomsg(message)
 
+    def get_client_size(self):
+        """
+        Return eventual eventual width and height reported by the
+        client. Note that this currently only deals with a single
+        client window (windowID==0) as in traditional telnet session
+        """
+        flags = self.protocol_flags
+        width = flags.get('SCREENWIDTH', {}).get(0, settings.CLIENT_DEFAULT_WIDTH)
+        height = flags.get('SCREENHEIGHT', {}).get(0, settings.CLIENT_DEFAULT_HEIGHT)
+        return width, height
+
     def update_session_counters(self, idle=False):
         """
         Hit this when the user enters a command in order to update idle timers
@@ -187,7 +198,7 @@ class ServerSession(Session):
         """
         if text:
             # this is treated as a command input
-            text = to_unicode(text)
+            #text = to_unicode(escape_control_sequences(text), encoding=self.encoding)
             # handle the 'idle' command
             if text.strip() == IDLE_COMMAND:
                 self.update_session_counters(idle=True)
@@ -220,6 +231,13 @@ class ServerSession(Session):
         """
         Send Evennia -> User
         """
+        text = text if text else ""
+        #if text is None:
+        #    text = ""
+        #else:
+        #    text = to_unicode(text)
+        #    text = to_str(text, self.encoding)
+
         self.sessionhandler.data_out(self, text=text, **kwargs)
 
     def __eq__(self, other):
@@ -262,7 +280,7 @@ class ServerSession(Session):
 
     # Dummy API hooks for use during non-loggedin operation
 
-    def at_cmdset_get(self):
+    def at_cmdset_get(self, **kwargs):
         "dummy hook all objects with cmdsets need to have"
         pass
 

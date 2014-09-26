@@ -150,7 +150,11 @@ def create_object(typeclass=None, key=None, location=None,
     if not _GA(new_object, "is_typeclass")(typeclass, exact=True):
         # this will fail if we gave a typeclass as input and it still
         # gave us a default
-        SharedMemoryModel.delete(new_db_object)
+        try:
+            SharedMemoryModel.delete(new_db_object)
+        except AssertionError:
+            # this happens if object was never created
+            pass
         if report_to:
             report_to = handle_dbref(report_to, _ObjectDB)
             _GA(report_to, "msg")("Error creating %s (%s).\n%s" % (new_db_object.key, typeclass,
@@ -191,8 +195,8 @@ def create_object(typeclass=None, key=None, location=None,
 
     # trigger relevant move_to hooks in order to display messages.
     if location:
-        new_object.at_object_receive(new_object, None)
-        new_object.at_after_move(new_object)
+        location.at_object_receive(new_object, None)
+        new_object.at_after_move(None)
 
     # post-hook setup (mainly used by Exits)
     new_object.basetype_posthook_setup()

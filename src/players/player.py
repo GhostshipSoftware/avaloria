@@ -91,7 +91,7 @@ class Player(TypeClass):
 
          at_init()
          at_access()
-         at_cmdset_get()
+         at_cmdset_get(**kwargs)
          at_first_login()
          at_post_login(sessid=None)
          at_disconnect()
@@ -133,7 +133,7 @@ class Player(TypeClass):
         """
         return self.dbobj.swap_character(new_character, delete_old_character=delete_old_character)
 
-    def execute_cmd(self, raw_string, sessid=None):
+    def execute_cmd(self, raw_string, sessid=None, **kwargs):
         """
         Do something as this object. This command transparently
         lets its typeclass execute the command. This method
@@ -144,6 +144,10 @@ class Player(TypeClass):
         raw_string (string) - raw command input
         sessid (int) - id of session executing the command. This sets the
                        sessid property on the command
+        **kwargs - other keyword arguments will be added to the found command
+                   object instace as variables before it executes. This is
+                   unused by default Evennia but may be used to set flags and
+                   change operating paramaters for commands at run-time.
 
         Returns Deferred - this is an asynchronous Twisted object that will
             not fire until the command has actually finished executing. To
@@ -155,7 +159,7 @@ class Player(TypeClass):
             be useful for coders intending to implement some sort of nested
             command structure.
         """
-        return self.dbobj.execute_cmd(raw_string, sessid=sessid)
+        return self.dbobj.execute_cmd(raw_string, sessid=sessid, **kwargs)
 
     def search(self, searchdata, return_puppet=False, **kwargs):
         """
@@ -264,9 +268,6 @@ class Player(TypeClass):
         changing this method.
 
         """
-        # the text encoding to use.
-        self.db.encoding = "utf-8"
-
         # A basic security setup
         lockstring = "examine:perm(Wizards);edit:perm(Wizards);delete:perm(Wizards);boot:perm(Wizards);msg:all()"
         self.locks.add(lockstring)
@@ -314,12 +315,14 @@ class Player(TypeClass):
         """
         pass
 
-    def at_cmdset_get(self):
+    def at_cmdset_get(self, **kwargs):
         """
         Called just before cmdsets on this player are requested by the
-        command handler. If changes need to be done on the fly to the cmdset
-        before passing them on to the cmdhandler, this is the place to do it.
-        This is called also if the player currently have no cmdsets.
+        command handler. If changes need to be done on the fly to the
+        cmdset before passing them on to the cmdhandler, this is the
+        place to do it.  This is called also if the player currently
+        have no cmdsets.  kwargs are usually not used unless the
+        cmdset is generated dynamically.
         """
         pass
 
@@ -371,7 +374,7 @@ class Player(TypeClass):
             # not perform any actions
             if not self.get_all_puppets():
                 self.execute_cmd("@ic", sessid=sessid)
-        elif _MULTISESSION_MODE == 2:
+        elif _MULTISESSION_MODE in (2, 3):
             # In this mode we by default end up at a character selection
             # screen. We execute look on the player.
             self.execute_cmd("look", sessid=sessid)
@@ -423,3 +426,43 @@ class Player(TypeClass):
         (i.e. not for a restart).
         """
         pass
+
+class Guest(Player):
+    """
+    This class is used for guest logins. Unlike Players, Guests and their
+    characters are deleted after disconnection.
+    """
+    def at_post_login(self, sessid=None):
+        """
+        In theory, guests only have one character regardless of which
+        MULTISESSION_MODE we're in. They don't get a choice.
+        """
+        self._send_to_connect_channel("{G%s connected{n" % self.key)
+        self.execute_cmd("@ic", sessid=sessid)
+
+    def at_disconnect(self):
+        """
+        A Guest's characters aren't meant to linger on the server. When a
+        Guest disconnects, we remove its character.
+        """
+        super(Guest, self).at_disconnect()
+        characters = self.db._playable_characters
+        for character in filter(None, characters):
+            character.delete()
+
+    def at_server_shutdown(self):
+        """
+        We repeat at_disconnect() here just to be on the safe side.
+        """
+        super(Guest, self).at_server_shutdown()
+        characters = self.db._playable_characters
+        for character in filter(None, characters):
+            character.delete()
+
+    def at_post_disconnect(self):
+        """
+        Guests aren't meant to linger on the server, either. We need to wait
+        until after the Guest disconnects to delete it, though.
+        """
+        super(Guest, self).at_post_disconnect()
+        self.delete()

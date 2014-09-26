@@ -29,6 +29,7 @@ from src.utils import logger
 from src.utils.utils import (make_iter, to_str, to_unicode, lazy_property,
                              variable_from_module, dbref)
 
+MULTISESSION_MODE = settings.MULTISESSION_MODE
 from django.utils.translation import ugettext as _
 
 #__all__ = ("ObjectDB", )
@@ -40,6 +41,54 @@ _SESSIONS = None
 _GA = object.__getattribute__
 _SA = object.__setattr__
 _DA = object.__delattr__
+
+# the sessid_max is based on the length of the db_sessid csv field (excluding commas)
+_SESSID_MAX = 16 if MULTISESSION_MODE in (1, 3) else 1
+
+class SessidHandler(object):
+    """
+    Handles the get/setting of the sessid
+    comma-separated integer field
+    """
+    def __init__(self, obj):
+        self.obj = obj
+        self._cache = set()
+        self._recache()
+
+    def _recache(self):
+        self._cache = list(set(int(val) for val in (_GA(self.obj, "db_sessid") or "").split(",") if val))
+
+    def get(self):
+        "Returns a list of one or more session ids"
+        return self._cache
+
+    def add(self, sessid):
+        "Add sessid to handler"
+        _cache = self._cache
+        if sessid not in _cache:
+            if len(_cache) >= _SESSID_MAX:
+                return
+            _cache.append(sessid)
+            _SA(self.obj, "db_sessid", ",".join(str(val) for val in _cache))
+            _GA(self.obj, "save")(update_fields=["db_sessid"])
+
+    def remove(self, sessid):
+        "Remove sessid from handler"
+        _cache = self._cache
+        if sessid in _cache:
+            _cache.remove(sessid)
+            _SA(self.obj, "db_sessid", ",".join(str(val) for val in _cache))
+            _GA(self.obj, "save")(update_fields=["db_sessid"])
+
+    def clear(self):
+        "Clear sessids"
+        self._cache = []
+        _SA(self.obj, "db_sessid", None)
+        _GA(self.obj, "save")(update_fields=["db_sessid"])
+
+    def count(self):
+        "Return amount of sessions connected"
+        return len(self._cache)
 
 
 #------------------------------------------------------------
@@ -101,11 +150,11 @@ class ObjectDB(TypedObject):
     # will automatically save and cache the data more efficiently.
 
     # If this is a character object, the player is connected here.
-    db_player = models.ForeignKey("players.PlayerDB", blank=True, null=True, verbose_name='player', on_delete=models.SET_NULL,
+    db_player = models.ForeignKey("players.PlayerDB", null=True, verbose_name='player', on_delete=models.SET_NULL,
                                   help_text='a Player connected to this object, if any.')
     # the session id associated with this player, if any
-    db_sessid = models.IntegerField(null=True, verbose_name="session id",
-                                    help_text="unique session id of connected Player, if any.")
+    db_sessid = models.CommaSeparatedIntegerField(null=True, max_length=32, verbose_name="session id",
+                                    help_text="csv list of session ids of connected Player, if any.")
     # The location in the game world. Since this one is likely
     # to change often, we set this with the 'location' property
     # to transparently handle Typeclassing.
@@ -141,6 +190,10 @@ class ObjectDB(TypedObject):
     @lazy_property
     def nicks(self):
         return NickHandler(self)
+
+    @lazy_property
+    def sessid(self):
+        return SessidHandler(self)
 
     def _at_db_player_postsave(self):
         """
@@ -223,7 +276,6 @@ class ObjectDB(TypedObject):
         _SA(_GA(self, "dbobj"), "db_location", None)
         _GA(_GA(self, "dbobj"), "save")(upate_fields=["db_location"])
     location = property(__location_get, __location_set, __location_del)
-
 
     class Meta:
         "Define Django meta options"
@@ -430,7 +482,7 @@ class ObjectDB(TypedObject):
     # Execution/action methods
     #
 
-    def execute_cmd(self, raw_string, sessid=None):
+    def execute_cmd(self, raw_string, sessid=None, **kwargs):
         """
         Do something as this object. This method is a copy of the execute_
         cmd method on the session. This is never called normally, it's only
@@ -440,6 +492,10 @@ class ObjectDB(TypedObject):
         Argument:
         raw_string (string) - raw command input
         sessid (int) - optional session id to return results to
+        **kwargs - other keyword arguments will be added to the found command
+                   object instace as variables before it executes. This is
+                   unused by default Evennia but may be used to set flags and
+                   change operating paramaters for commands at run-time.
 
         Returns Deferred - this is an asynchronous Twisted object that will
             not fire until the command has actually finished executing. To
@@ -457,7 +513,7 @@ class ObjectDB(TypedObject):
         raw_string = to_unicode(raw_string)
         raw_string = self.nicks.nickreplace(raw_string,
                      categories=("inputline", "channel"), include_player=True)
-        return cmdhandler.cmdhandler(_GA(self, "typeclass"), raw_string, callertype="object", sessid=sessid)
+        return cmdhandler.cmdhandler(_GA(self, "typeclass"), raw_string, callertype="object", sessid=sessid, **kwargs)
 
     def msg(self, text=None, from_obj=None, sessid=0, **kwargs):
         """
@@ -500,8 +556,8 @@ class ObjectDB(TypedObject):
         except Exception:
             logger.log_trace()
 
-        session = _SESSIONS.session_from_sessid(sessid if sessid else _GA(self, "sessid"))
-        if session:
+        sessions = _SESSIONS.session_from_sessid([sessid] if sessid else make_iter(_GA(self, "sessid").get()))
+        for session in sessions:
             session.msg(text=text, **kwargs)
 
     def msg_contents(self, message, exclude=None, from_obj=None, **kwargs):

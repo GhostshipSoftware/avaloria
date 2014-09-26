@@ -118,15 +118,16 @@ class CmdOOCLook(MuxPlayerCommand):
                          MAX_NR_CHARACTERS > 1 and " (%i/%i)" % (len(characters), MAX_NR_CHARACTERS) or "")
 
             for char in characters:
-                csessid = char.sessid
+                csessid = char.sessid.get()
                 if csessid:
                     # character is already puppeted
-                    sess = player.get_session(csessid)
-                    sid = sess in sessions and sessions.index(sess) + 1
-                    if sess and sid:
-                        string += "\n - {G%s{n [%s] (played by you in session %i)" % (char.key, ", ".join(char.permissions.all()), sid)
-                    else:
-                        string += "\n - {R%s{n [%s] (played by someone else)" % (char.key, ", ".join(char.permissions.all()))
+                    sessi = player.get_session(csessid)
+                    for sess in utils.make_iter(sessi):
+                        sid = sess in sessions and sessions.index(sess) + 1
+                        if sess and sid:
+                            string += "\n - {G%s{n [%s] (played by you in session %i)" % (char.key, ", ".join(char.permissions.all()), sid)
+                        else:
+                            string += "\n - {R%s{n [%s] (played by someone else)" % (char.key, ", ".join(char.permissions.all()))
                 else:
                     # character is "free to puppet"
                     string += "\n - %s [%s]" % (char.key, ", ".join(char.permissions.all()))
@@ -162,7 +163,7 @@ class CmdCharCreate(MuxPlayerCommand):
     if you want.
     """
     key = "@charcreate"
-    locks = "cmd:all()"
+    locks = "cmd:pperm(Players)"
     help_category = "General"
 
     def func(self):
@@ -196,7 +197,7 @@ class CmdCharCreate(MuxPlayerCommand):
         player.db._playable_characters.append(new_character)
         if desc:
             new_character.db.desc = desc
-        else:
+        elif not new_character.db.desc:
             new_character.db.desc = "This is a Player."
         self.msg("Created new character %s. Use {w@ic %s{n to enter the game as this character." % (new_character.key, new_character.key))
 
@@ -252,12 +253,17 @@ class CmdIC(MuxPlayerCommand):
             return
         if new_character.player:
             # may not puppet an already puppeted character
-            if new_character.sessid and new_character.player == player:
-                # as a safeguard we allow "taking over chars from
-                # your own sessions.
-                player.msg("{c%s{n{R is now acted from another of your sessions.{n" % (new_character.name), sessid=new_character.sessid)
-                player.unpuppet_object(new_character.sessid)
-                self.msg("Taking over {c%s{n from another of your sessions." % new_character.name)
+            if new_character.sessid.count() and new_character.player == player:
+                # as a safeguard we allow "taking over" chars from your own sessions.
+                if MULTISESSION_MODE in (1, 3):
+                    txt = "{c%s{n{G is now shared from another of your sessions.{n"
+                    txt2 =  "Sharing {c%s{n with another of your sessions."
+                else:
+                    txt = "{c%s{n{R is now acted from another of your sessions.{n"
+                    txt2 =  "Taking over {c%s{n from another of your sessions."
+                player.unpuppet_object(new_character.sessid.get())
+                player.msg(txt % (new_character.name), sessid=new_character.sessid.get())
+                self.msg(txt2 % new_character.name)
             elif new_character.player != player and new_character.player.is_connected:
                 self.msg("{c%s{r is already acted by another player.{n" % new_character.name)
                 return
@@ -285,7 +291,7 @@ class CmdOOC(MuxPlayerCommand):
 
     key = "@ooc"
     # lock must be all(), for different puppeted objects to access it.
-    locks = "cmd:all()"
+    locks = "cmd:pperm(Players)"
     aliases = "@unpuppet"
     help_category = "General"
 
@@ -451,19 +457,21 @@ class CmdEncoding(MuxPlayerCommand):
         """
         Sets the encoding.
         """
-        player = self.player
+
+        if self.session is None:
+            return
 
         if 'clear' in self.switches:
             # remove customization
-            old_encoding = player.db.encoding
+            old_encoding = self.session.encoding
             if old_encoding:
                 string = "Your custom text encoding ('%s') was cleared." % old_encoding
             else:
                 string = "No custom encoding was set."
-            del player.db.encoding
+            self.session.encoding = "utf-8"
         elif not self.args:
             # just list the encodings supported
-            pencoding = player.db.encoding
+            pencoding = self.session.encoding
             string = ""
             if pencoding:
                 string += "Default encoding: {g%s{n (change with {w@encoding <encoding>{n)" % pencoding
@@ -474,9 +482,9 @@ class CmdEncoding(MuxPlayerCommand):
                 string = "No encodings found."
         else:
             # change encoding
-            old_encoding = player.db.encoding
+            old_encoding = self.session.encoding
             encoding = self.args
-            player.db.encoding = encoding
+            self.session.encoding = encoding
             string = "Your custom text encoding was changed from '%s' to '%s'." % (old_encoding, encoding)
         self.msg(string.strip())
 
@@ -491,7 +499,7 @@ class CmdPassword(MuxPlayerCommand):
     Changes your password. Make sure to pick a safe one.
     """
     key = "@password"
-    locks = "cmd:all()"
+    locks = "cmd:pperm(Players)"
 
     def func(self):
         "hook function."
@@ -605,7 +613,7 @@ class CmdColorTest(MuxPlayerCommand):
                 string += "\n " + " ".join(row)
             #print string
             self.msg(string)
-            self.msg("{{X : black. {{\ : return, {{- : tab, {{_ : space, {{* : invert")
+            self.msg("{{X : black. {{/ : return, {{- : tab, {{_ : space, {{* : invert")
             self.msg("To combine background and foreground, add background marker last, e.g. {{r{{[b.")
 
         elif self.args.startswith("x"):
@@ -650,7 +658,7 @@ class CmdQuell(MuxPlayerCommand):
 
     key = "@quell"
     aliases = ["@unquell"]
-    locks = "cmd:all()"
+    locks = "cmd:pperm(Players)"
     help_category = "General"
 
     def _recache_locks(self, player):

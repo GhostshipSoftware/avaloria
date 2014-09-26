@@ -15,7 +15,8 @@ There are two similar but separate stores of sessions:
 import time
 from django.conf import settings
 from src.commands.cmdhandler import CMD_LOGINSTART
-from src.utils.utils import variable_from_module
+from src.utils.utils import variable_from_module, is_iter, \
+                            to_str, to_unicode, strip_control_sequences
 try:
     import cPickle as pickle
 except ImportError:
@@ -38,6 +39,7 @@ SDISCONNALL = chr(6)  # server session disconnect all
 SSHUTD = chr(7)       # server shutdown
 SSYNC = chr(8)        # server session sync
 SCONN = chr(9)        # server portal connection (for bots)
+PCONNSYNC = chr(10)   # portal post-syncing session
 
 # i18n
 from django.utils.translation import ugettext as _
@@ -210,6 +212,16 @@ class ServerSessionHandler(SessionHandler):
         self.sessions[sess.sessid] = sess
         sess.data_in(CMD_LOGINSTART)
 
+    def portal_session_sync(self, portalsessiondata):
+        """
+        Called by Portal when it wants to update a single session (e.g.
+        because of all negotiation protocols have finally replied)
+        """
+        sessid = portalsessiondata.get("sessid")
+        session = self.sessions.get(sessid)
+        if session:
+            session.load_sync_data(portalsessiondata)
+
     def portal_disconnect(self, sessid):
         """
         Called by Portal when portal reports a closing of a session
@@ -227,7 +239,7 @@ class ServerSessionHandler(SessionHandler):
         session.disconnect()
         del self.sessions[session.sessid]
 
-    def portal_session_sync(self, portalsessions):
+    def portal_sessions_sync(self, portalsessions):
         """
         Syncing all session ids of the portal with the ones of the
         server. This is instantiated by the portal when reconnecting.
@@ -416,12 +428,18 @@ class ServerSessionHandler(SessionHandler):
         """
         Return session based on sessid, or None if not found
         """
+        if is_iter(sessid):
+            return [self.sessions.get(sid) for sid in sessid if sid in self.sessions]
         return self.sessions.get(sessid)
 
     def session_from_player(self, player, sessid):
         """
         Given a player and a session id, return the actual session object
         """
+        if is_iter(sessid):
+            sessions = [self.sessions.get(sid) for sid in sessid]
+            s = [sess for sess in sessions if sess and sess.logged_in and player.uid == sess.uid]
+            return s
         session = self.sessions.get(sessid)
         return session and session.logged_in and player.uid == session.uid and session or None
 
@@ -436,10 +454,10 @@ class ServerSessionHandler(SessionHandler):
         """
         Given a game character, return any matching sessions.
         """
-        sessid = character.sessid
-        if sessid:
-            return self.sessions.get(sessid)
-        return None
+        sessid = character.sessid.get()
+        if is_iter(sessid):
+            return [self.sessions.get(sess) for sess in sessid if sessid in self.sessions]
+        return self.sessions.get(sessid)
 
     def announce_all(self, message):
         """
@@ -452,6 +470,7 @@ class ServerSessionHandler(SessionHandler):
         """
         Sending data Server -> Portal
         """
+        text = text and to_str(to_unicode(text), encoding=session.encoding)
         self.server.amp_protocol.call_remote_MsgServer2Portal(sessid=session.sessid,
                                                               msg=text,
                                                               data=kwargs)
@@ -462,6 +481,7 @@ class ServerSessionHandler(SessionHandler):
         """
         session = self.sessions.get(sessid, None)
         if session:
+            text = text and to_unicode(strip_control_sequences(text), encoding=session.encoding)
             session.data_in(text=text, **kwargs)
 
 SESSIONS = ServerSessionHandler()

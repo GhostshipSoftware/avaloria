@@ -85,7 +85,9 @@ SSL_ENABLED = False
 SSL_PORTS = [4001]
 # Interface addresses to listen to. If 0.0.0.0, listen to all. Use :: for IPv6.
 SSL_INTERFACES = ['0.0.0.0']
-# Activate Websocket support
+# Activate custom websocket support. This is unrelated to the websocket client!
+# This is intended to be used by optional third-party connections/applications
+# or clients.
 WEBSOCKET_ENABLED = False
 # Ports to use for Websockets
 WEBSOCKET_PORTS = [8021]
@@ -306,7 +308,7 @@ BASE_SCRIPT_TYPECLASS = "src.scripts.scripts.DoNothing"
 DEFAULT_HOME = "#2"
 # The start position for new characters. Default is Limbo (#2).
 #  MULTISESSION_MODE = 0, 1 - used by default unloggedin create command
-#  MULTISESSION_MODE = 2 - used by default character_create command
+#  MULTISESSION_MODE = 2,3 - used by default character_create command
 START_LOCATION = "#2"
 # Lookups of Attributes, Tags, Nicks, Aliases can be aggressively
 # cached to avoid repeated database hits. This often gives noticeable
@@ -352,30 +354,58 @@ TIME_MONTH_PER_YEAR = 12
 # Different Multisession modes allow a player (=account) to connect to the
 # game simultaneously with multiple clients (=sessions). In modes 0,1 there is
 # only one character created to the same name as the account at first login.
-# In modes 1,2 no default character will be created and the MAX_NR_CHARACTERS
-# value (below) defines how many characters are allowed.
+# In modes 2,3 no default character will be created and the MAX_NR_CHARACTERS
+# value (below) defines how many characters the default char_create command
+# allow per player.
 #  0 - single session, one player, one character, when a new session is
 #      connected, the old one is disconnected
 #  1 - multiple sessions, one player, one character, each session getting
 #      the same data
-#  2 - multiple sessions, one player, many characters, each session getting
-#      data from different characters
+#  2 - multiple sessions, one player, many characters, one session per
+#      character (disconnects multiplets)
+#  3 - like mode 2, except multiple sessions can puppet one character, each
+#      session getting the same data.
 MULTISESSION_MODE = 0
-# The maximum number of characters allowed for MULTISESSION_MODE 2. This is
-# checked
-# by the default ooc char-creation command. Forced to 1 for
+# The maximum number of characters allowed for MULTISESSION_MODE 2,3. This is
+# checked by the default ooc char-creation command. Forced to 1 for
 # MULTISESSION_MODE 0 and 1.
 MAX_NR_CHARACTERS = 1
 # The access hiearchy, in climbing order. A higher permission in the
 # hierarchy includes access of all levels below it. Used by the perm()/pperm()
 # lock functions.
-PERMISSION_HIERARCHY = ("Players",
+PERMISSION_HIERARCHY = ["Guests", # note-only used if GUEST_ENABLED=True
+                        "Players",
                         "PlayerHelpers",
                         "Builders",
                         "Wizards",
-                        "Immortals")
+                        "Immortals"]
 # The default permission given to all new players
 PERMISSION_PLAYER_DEFAULT = "Players"
+# Default sizes for client window (in number of characters), if client
+# is not supplying this on its own
+CLIENT_DEFAULT_WIDTH = 78
+CLIENT_DEFAULT_HEIGHT = 45 # telnet standard is 24 but does anyone use such
+                           # low-res displays anymore?
+
+######################################################################
+# Guest accounts
+######################################################################
+
+# This enables guest logins, by default via "connect guest"
+GUEST_ENABLED = False
+# Typeclass for guest player objects (linked to a character)
+BASE_GUEST_TYPECLASS = "src.players.player.Guest"
+# The permission given to guests
+PERMISSION_GUEST_DEFAULT = "Guests"
+# The default home location used for guests.
+GUEST_HOME = DEFAULT_HOME
+# The start position used for guest characters.
+GUEST_START_LOCATION = START_LOCATION
+# The naming convention used for creating new guest
+# players/characters. The size of this list also detemines how many
+# guests may be on the game at once. The default is a maximum of nine
+# guests, named Guest1 through Guest9.
+GUEST_LIST = ["Guest" + str(s+1) for s in range(9)]
 
 ######################################################################
 # In-game Channels created from server start
@@ -530,7 +560,7 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.messages.middleware.MessageMiddleware',  # 1.4?
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.middleware.doc.XViewMiddleware',
+    'django.contrib.admindocs.middleware.XViewMiddleware',
     'django.contrib.flatpages.middleware.FlatpageFallbackMiddleware',)
 # Context processors define context variables, generally for the template
 # system to use.
@@ -581,13 +611,6 @@ TEST_RUNNER = 'src.server.tests.EvenniaTestSuiteRunner'
 try:
     import django_extensions
     INSTALLED_APPS = INSTALLED_APPS + ('django_extensions',)
-except ImportError:
-    pass
-# South handles automatic database scheme migrations when evennia
-# updates
-try:
-    import south
-    INSTALLED_APPS = INSTALLED_APPS + ('south',)
 except ImportError:
     pass
 

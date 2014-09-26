@@ -251,13 +251,13 @@ def get_and_merge_cmdsets(caller, session, player, obj,
 # Main command-handler function
 
 @inlineCallbacks
-def cmdhandler(called_by, raw_string, testing=False, callertype="session", sessid=None):
+def cmdhandler(called_by, raw_string, _testing=False, callertype="session", sessid=None, **kwargs):
     """
     This is the main function to handle any string sent to the engine.
 
     called_by - object on which this was called from. This is either a Session, a Player or an Object.
     raw_string - the command string given on the command line
-    testing - if we should actually execute the command or not.
+    _testing - if we should actually execute the command or not.
               if True, the command instance will be returned instead.
     callertype - this is one of "session", "player" or "object", in decending
                  order. So when the Session is the caller, it will merge its
@@ -268,6 +268,10 @@ def cmdhandler(called_by, raw_string, testing=False, callertype="session", sessi
                  giving them precendence for same-name and same-prio commands.
     sessid - Relevant if callertype is "player" - the session id will help
              retrieve the correct cmdsets from puppeted objects.
+    **kwargs - other keyword arguments will be assigned as named variables on the
+               retrieved command object *before* it is executed. This is unuesed
+               in default Evennia but may be used by code to set custom flags or
+               special operating conditions for a command as it executes.
 
     Note that this function returns a deferred!
     """
@@ -388,12 +392,19 @@ def cmdhandler(called_by, raw_string, testing=False, callertype="session", sessi
                 # we make sure to validate its scripts.
                 yield cmd.obj.scripts.validate()
 
-            if testing:
+            if _testing:
                 # only return the command instance
                 returnValue(cmd)
 
+            # assign custom kwargs to found cmd object
+            for key, val in kwargs.items():
+                setattr(cmd, key, val)
+
             # pre-command hook
-            yield cmd.at_pre_cmd()
+            abort = yield cmd.at_pre_cmd()
+            if abort:
+                # abort sequence
+                returnValue(abort)
 
             # Parse and execute
             yield cmd.parse()
@@ -409,12 +420,6 @@ def cmdhandler(called_by, raw_string, testing=False, callertype="session", sessi
                 caller.ndb.last_cmd = yield copy(cmd)
             else:
                 caller.ndb.last_cmd = None
-
-            # cleanup
-            del cmd.caller
-            del cmd.player
-            del cmd.session
-            del cmd.cmdset
 
             # Done! This returns a deferred. By default, Evennia does
             # not use this at all.
@@ -438,7 +443,7 @@ def cmdhandler(called_by, raw_string, testing=False, callertype="session", sessi
                     # we make sure to validate its scripts.
                     yield syscmd.obj.scripts.validate()
 
-                if testing:
+                if _testing:
                     # only return the command instance
                     returnValue(syscmd)
 
