@@ -4,7 +4,7 @@ from ev import create_object, search_object
 
 #CODE (Battle Dummy)
 storage = search_object("Limbo")[0]
-tut_enemynpc = create.create_object("game.gamesrc.objects.world.npc.Npc", key="Battle Dummy", location=tutorial3)
+tut_enemynpc = create_object("game.gamesrc.objects.world.npc.Npc", key="Battle Dummy", location=tutorial3)
 desc = "What seems to be an animated..scarecrow...thing.  \"Mmph...mppphhnnmm\" is the only sounds it seems capable of making.\n"
 desc += "In its hand materializes a magically summoned hammer and shield."
 tut_enemynpc.db.desc = desc
@@ -15,7 +15,7 @@ tut_enemynpc.generate_attributes()
 
 #CODE (Kayleigh)
 tutorial1_room = search_object("tutorial1")[0]
-tutorial1_npc = create.create_object("game.gamesrc.objects.world.npc.Npc", key="Kayleigh", location=tutorial1_room)
+tutorial1_npc = create_object("game.gamesrc.objects.world.npc.Npc", key="Kayleigh", location=tutorial1_room)
 desc = "This striking woman is clearly far stronger than you and could probably kill you with a mere flick of her finger.\n"
 desc += "She is dressed in a black ensemble that hides all of her features except her eyes.  As you look at her face, you\n"
 desc += "notice that her eyes are entirely white, though she does not seem to be blind."
@@ -29,7 +29,7 @@ tutorial1_npc.db.trainer = False
 
 #CODE (Green Warden)
 tutorial2_room = search_object("tutorial2")[0]
-tutorial2_npc  = create.create_object("game.gamesrc.objects.world.npc.Npc", key="Green Warden", location=tutorial2_room)
+tutorial2_npc  = create_object("game.gamesrc.objects.world.npc.Npc", key="Green Warden", location=tutorial2_room)
 desc = "A very old man clad in brownish green robes.  In his right hand he holds an impressive wooden staff, which at\n"
 desc += "the end of its length is a carved talon gripping a green orb which pulsates gently.  As you look at the pulsating\n"
 desc += "glow, the man quietly says \"So you have come to learn have you?\"."
@@ -43,7 +43,7 @@ tutorial2_npc.db.trainer = False
 
 #CODE (Kenchi)
 tutorial3_room = search_object("tutorial3")[0]
-tutorial3_npc = create.create_object("game.gamesrc.objects.world.npc.Npc", key="Battlemaster Kenchi", location=tutorial3_room)
+tutorial3_npc = create_object("game.gamesrc.objects.world.npc.Npc", key="Battlemaster Kenchi", location=tutorial3_room)
 desc = "This is a large Earthen man who wears a black hooded mask in the style of an executioner.  He looks like he's\n"
 desc += "spent most of his life striving to reach physical perfection.  His body is lined with scars that make it known\n"
 desc += "he's seen some stuff...and some things...man."

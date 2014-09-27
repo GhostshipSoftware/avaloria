@@ -17,6 +17,9 @@ from src.settings_default import *
 # Custom settings
 ######################################################################
 
+BASE_CHARACTER_TYPECLASS = "game.gamesrc.objects.world.character.Hero"
+LOCK_FUNC_MODULES = ("src.locks.lockfuncs", "game.gamesrc.overrides.lockfuncs")
+CMDSET_UNLOGGEDIN = "game.gamesrc.menu_login"
 
 ######################################################################
 # SECRET_KEY was randomly seeded when settings.py was first created.
