@@ -17,7 +17,8 @@ from src.settings_default import *
 # Custom settings
 ######################################################################
 BASE_CHARACTER_TYPECLASS = "game.gamesrc.objects.world.character.Hero"
-
+CMDSET_UNLOGGEDIN = "game.gamesrc.menu_login.UnloggedInCmdSet"
+LOCK_FUNC_MODULES = ("src.locks.lockfuncs", "game.gamesrc.overrides.lockfuncs")
 ######################################################################
 # SECRET_KEY was randomly seeded when settings.py was first created.
 # Don't share this with anybody. It is used by Evennia to handle
