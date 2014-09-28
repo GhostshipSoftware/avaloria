@@ -260,7 +260,7 @@ Which path to do you desire to walk?
         menutree.start()
 
 
-class OOCCmdSetCharGen(OOCCmdSet):
+class OOCCmdSetCharGen(CmdSet):
     """
     Extends the default OOC cmdset.
     """    
