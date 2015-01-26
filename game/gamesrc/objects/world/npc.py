@@ -1,4 +1,6 @@
-from ev import Object
+from ev import Object, search_object
+import ev
+from contrib.menusystem import *
 import random
 
 class Npc(Object):
@@ -211,12 +213,17 @@ class Npc(Object):
         quests = self.db.quests
         checked_quests = []
         character = caller
-        character_quest_log = character.db.quest_log
+        character_quest_log = character.db.questlog
         active_quests = character_quest_log.db.active_quests
         completed_quests = character_quest_log.db.completed_quests
-        storage = self.search('storage', global_search=True)
         for quest in quests:
-            quest_obj = storage.search('%s' % quest.title(), global_search=False, ignore_errors=True)[0]
+            print quest
+            quest_obj = ev.search_object_tag('%s' % quest.lower())
+            try:
+                quest_obj = quest_obj[0]
+            except IndexError:
+                continue
+            print quest_obj
             if quest.lower() in [ q.lower() for q in active_quests.keys()]:
                 continue
             if quest_obj.db.prereq is not None:
@@ -247,9 +254,9 @@ perhaps you could spare some time?
         root_node = MenuNode("START", links=[i for i in checked_quests], linktexts=["{y!{n %s" % i for i in checked_quests], text = welcome_text)
         for quest in checked_quests:
             #caller.msg("Looking for: %s" % quest)
-            quest_obj = storage.search('%s' % quest, global_search=False, ignore_errors=True)[0]
+            quest_obj = ev.search_object_tag('%s' % quest.lower())[0]
             #caller.msg("%s" % quest_obj.name)
-            confirm_quest_node = MenuNode("confirm-%s" % quest, links=[], linktexts=[], code="self.caller.accept_quest('%s');self.goto('END');self.caller.cmdset.delete('contrib.menusystem.MenuCmdSet')" % quest)
+            confirm_quest_node = MenuNode("confirm-%s" % quest, links=['END'], linktexts=['Exit dialogue'], code="self.caller.accept_quest('%s')" % quest)
             quest_node = MenuNode("%s" % quest, links=['confirm-%s' % quest, 'START'], linktexts=['Accept %s' % quest, "I want to talk about something else."], text=quest_obj.db.long_description)
             nodes.append(confirm_quest_node)
             nodes.append(quest_node)

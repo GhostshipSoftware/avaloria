@@ -1,4 +1,5 @@
 from ev import Command, CmdSet
+from src.commands.default.muxcommand import MuxCommand
 
 class CmdAttack(Command):
     """
@@ -62,14 +63,15 @@ class CmdTalk(Command):
             return
         npc = self.caller.search(self.npc, global_search=False)
         if hasattr(npc, "combatant"):
+            self.caller.msg("You can't talk to that, are you mad?")
+        else:
             if npc is not None:
                 self.caller.msg("{mYou tell %s: %s{n" % (npc.name, self.message)) 
                 npc.dictate_action(self.caller, self.message)  
             else:
                 self.caller.msg("I don not see anyone around by that name.")
                 return
-        else:
-            self.caller.msg("You can't talk to that, are you mad?")
+            
 
 
 class CmdDisplaySheet(Command):
@@ -142,6 +144,94 @@ class CmdEquip(Command):
         self.caller.msg("{CYou have equipped: %s as your weapon.{n")
         
 
+class CmdLook(MuxCommand):
+    """
+    look at location or object
+
+    Usage:
+      look
+      look <obj>
+      look *<player>
+
+    Observes your location or objects in your vicinity.
+    """
+    key = "look"
+    aliases = ["l", "ls"]
+    locks = "cmd:all()"
+    arg_regex = r"\s.*?|$"
+
+    def func(self):
+        """
+        Handle the looking.
+        """
+        caller = self.caller
+        args = self.args
+        if args:
+            # Use search to handle duplicate/nonexistant results.
+            if self.caller.location.db.decor_objects is not None and len(self.caller.location.db.decor_objects) > 0:
+                for k in self.caller.location.db.decor_objects:
+                    print k
+                    if k.lower() == args.lower():
+                        caller.msg("%s" % self.caller.location.db.decor_objects[k])
+                        return
+            looking_at_obj = caller.search(args, use_nicks=True)
+        
+            if not looking_at_obj:
+                return
+        else:
+            looking_at_obj = caller.location
+            if not looking_at_obj:
+                caller.msg("You have no location to look at!")
+                return
+
+        if not hasattr(looking_at_obj, 'return_appearance'):
+            # this is likely due to us having a player instead
+            looking_at_obj = looking_at_obj.character
+        if not looking_at_obj.access(caller, "view"):
+            caller.msg("Could not find '%s'." % args)
+            return
+        # get object's appearance
+        caller.msg(looking_at_obj.return_appearance(caller))
+        # the object's at_desc() method.
+        looking_at_obj.at_desc(looker=caller)
+
+class CmdEquip(Command):
+    """
+    This attempts to equip items on the character. If no arguements are
+    given, then it picks the first item for each slot it finds and equips
+    those items in their respective slots.
+
+    usage: 
+        equip <item to equip>
+    
+    aliases: wield, equip item, e
+    """
+    key = 'equip'
+    aliases = ['equip item', 'wield', 'e']
+    help_category = "General"
+    locks = "cmd:all()"
+
+    def parse(self):
+        if len(self.args) < 1:
+            self.what = None
+        else:
+            self.what = self.args.strip()
+
+    def func(self):
+        if self.caller.db.in_combat:
+            self.caller.msg("{RCan't equip while in combat!")
+        if len(self.args) < 1:
+            self.caller.msg("What did you want to equip?  equip <item to equip>")
+            return
+        if self.what is not None:
+            obj = self.caller.search(self.what, global_search=False)
+            if not obj:
+                self.caller.msg("Are you sure you are carrying the item you are trying to equip?")
+            else:
+                self.caller.equip_item(ite=obj, slot=obj.db.attributes['item_slot'])
+                obj.on_equip()
+        else:
+            self.caller.equip_item(ite=None,slot=None)
                    
 class CharacterCmdSet(CmdSet):
 
@@ -153,4 +243,6 @@ class CharacterCmdSet(CmdSet):
         self.add(CmdDisplaySheet())
         self.add(CmdEquip())
         self.add(CmdTalk())
+        self.add(CmdLook())
+        self.add(CmdEquip())
 
